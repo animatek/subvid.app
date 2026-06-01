@@ -137,20 +137,20 @@ let activePresetId = "default"
 
 const LANGS = {
   en: { label: "English", nllb: "eng_Latn" },
-  es: { label: "Español", nllb: "spa_Latn" },
-  fr: { label: "Français", nllb: "fra_Latn" },
-  de: { label: "Deutsch", nllb: "deu_Latn" },
-  pt: { label: "Português", nllb: "por_Latn" },
-  it: { label: "Italiano", nllb: "ita_Latn" },
-  nl: { label: "Nederlands", nllb: "nld_Latn" },
-  ru: { label: "Русский", nllb: "rus_Cyrl" },
-  ja: { label: "日本語", nllb: "jpn_Jpan" },
-  ko: { label: "한국어", nllb: "kor_Hang" },
-  zh: { label: "中文", nllb: "zho_Hans" },
-  ar: { label: "العربية", nllb: "arb_Arab" },
-  hi: { label: "हिन्दी", nllb: "hin_Deva" },
-  pl: { label: "Polski", nllb: "pol_Latn" },
-  tr: { label: "Türkçe", nllb: "tur_Latn" },
+  es: { label: "Spanish", nllb: "spa_Latn" },
+  fr: { label: "French", nllb: "fra_Latn" },
+  de: { label: "German", nllb: "deu_Latn" },
+  pt: { label: "Portuguese", nllb: "por_Latn" },
+  it: { label: "Italian", nllb: "ita_Latn" },
+  nl: { label: "Dutch", nllb: "nld_Latn" },
+  ru: { label: "Russian", nllb: "rus_Cyrl" },
+  ja: { label: "Japanese", nllb: "jpn_Jpan" },
+  ko: { label: "Korean", nllb: "kor_Hang" },
+  zh: { label: "Chinese", nllb: "zho_Hans" },
+  ar: { label: "Arabic", nllb: "arb_Arab" },
+  hi: { label: "Hindi", nllb: "hin_Deva" },
+  pl: { label: "Polish", nllb: "pol_Latn" },
+  tr: { label: "Turkish", nllb: "tur_Latn" },
 }
 
 const ui = {
@@ -229,7 +229,7 @@ const ui = {
 
 const downloads = {
   ffmpeg: {
-    label: "Núcleo FFmpeg WASM",
+    label: "FFmpeg WASM core",
     state: "pending",
     progress: 0,
     loaded: 0,
@@ -237,7 +237,7 @@ const downloads = {
     speed: 0,
   },
   asr: {
-    label: "Modelo Whisper",
+    label: "Whisper model",
     state: "pending",
     progress: 0,
     loaded: 0,
@@ -245,13 +245,13 @@ const downloads = {
     speed: 0,
   },
   translation: {
-    label: "Modelo de traducción",
+    label: "Translation model",
     state: "pending",
     progress: 0,
     loaded: 0,
     total: 0,
     speed: 0,
-    pendingNote: "Solo si traduces",
+    pendingNote: "Only if you translate",
   },
 }
 
@@ -413,10 +413,10 @@ function outputTarget(sourceLang) {
 
 function baseFileName() {
   return (
-    (selectedVideoFile?.name || "subtitulos")
+    (selectedVideoFile?.name || "subtitles")
       .replace(/\.[^/.]+$/, "")
       .replace(/[^a-zA-Z0-9-_]+/g, "-")
-      .toLowerCase() || "subtitulos"
+      .toLowerCase() || "subtitles"
   )
 }
 
@@ -431,9 +431,9 @@ function setStage(stage) {
 
 // ── Model download status ──
 const STATE_LABEL = {
-  pending: "En espera",
-  downloading: "Descargando",
-  ready: "Listo",
+  pending: "Waiting",
+  downloading: "Downloading",
+  ready: "Ready",
   error: "Error",
 }
 
@@ -617,11 +617,11 @@ function renderDownloads() {
   ui.downloadsToggle.classList.toggle("is-busy", liveCount > 0 && !allReady)
 
   ui.downloadsSummary.textContent = allReady
-    ? "Todo listo"
+    ? "All ready"
     : hasError
-      ? "Con errores"
+      ? "With errors"
       : liveCount
-        ? `${liveCount} en curso`
+        ? `${liveCount} in progress`
         : ""
 
   const labelText = allReady
@@ -739,23 +739,26 @@ async function preloadAssetsInBackground() {
 
 // ── Audio extraction ──
 async function extractAudioBuffer(file) {
-  setStatus("Cargando FFmpeg…", "busy")
-  startProgressCreep(2, 12, 4000)
+  setStatus("Step 1/5 · Loading FFmpeg…", "busy")
+  startProgressCreep(2, 10, 4000)
   const worker = await ensureFfmpeg()
   stopProgressCreep()
+  setProgress(10)
   const inputName = "input-video"
   const outputName = "audio.wav"
-  setStatus("Preparando vídeo…", "busy")
-  startProgressCreep(12, 18, 2500)
+  setStatus("Step 2/5 · Reading video file…", "busy")
+  startProgressCreep(10, 16, 2500)
   await worker.writeFile(inputName, await fetchFile(file))
   stopProgressCreep()
-  setStatus("Extrayendo audio…", "busy")
-  setProgress(18)
-  // ffmpeg reports decode progress as 0→1; map it onto 18%→34% so the bar
+  setProgress(16)
+  setStatus("Step 2/5 · Extracting audio track…", "busy")
+  // ffmpeg reports decode progress as 0→1; map it onto 16%→32% so the bar
   // moves continuously while the audio track is demuxed.
   onFfmpegProgress = (p) => {
     const ratio = Math.max(0, Math.min(1, p || 0))
-    applyProgress(18 + ratio * 16)
+    const pct = Math.round(ratio * 100)
+    setStatus(`Step 2/5 · Extracting audio track… ${pct}%`, "busy")
+    applyProgress(16 + ratio * 16)
   }
   await worker.exec([
     "-i",
@@ -770,9 +773,9 @@ async function extractAudioBuffer(file) {
     outputName,
   ])
   onFfmpegProgress = null
-  setStatus("Decodificando audio…", "busy")
-  // readFile + decodeAudioData are opaque; creep 34→42 so it keeps moving.
-  startProgressCreep(34, 42, 2500)
+  setStatus("Step 3/5 · Decoding audio…", "busy")
+  // readFile + decodeAudioData are opaque; creep 32→38 so it keeps moving.
+  startProgressCreep(32, 38, 2500)
   const outputData = await worker.readFile(outputName)
   await worker.deleteFile(inputName)
   await worker.deleteFile(outputName)
@@ -785,7 +788,7 @@ async function extractAudioBuffer(file) {
   copied.set(mono)
   await audioContext.close()
   stopProgressCreep()
-  setProgress(42)
+  setProgress(38)
   return copied
 }
 
@@ -795,7 +798,7 @@ async function translateSegments(segments, sourceLang, targetLang) {
     return segments.map((s) => ({ ...s }))
   if (!LANGS[sourceLang] || !LANGS[targetLang])
     return segments.map((s) => ({ ...s }))
-  setStatus(`Traduciendo a ${LANGS[targetLang].label}…`, "busy")
+  setStatus(`Step 5/5 · Translating to ${LANGS[targetLang].label}…`, "busy")
   const worker = await ensureTranslator()
   const texts = segments.map((s) => s.text)
   const translated = await worker(texts, {
@@ -822,44 +825,87 @@ async function generate() {
   ui.configError.hidden = true
   ui.configError.textContent = ""
   ui.configProgress.hidden = false
-  setStatus("Preparando…", "busy")
+  setStatus("Preparing…", "busy")
   setProgress(2)
   try {
     const audio = await extractAudioBuffer(selectedVideoFile)
-    setStatus("Cargando modelo de voz…", "busy")
-    startProgressCreep(42, 58, 8000)
+    setStatus("Step 4/5 · Loading speech model…", "busy")
+    startProgressCreep(38, 48, 8000)
     const asr = await ensureRecognizer()
     stopProgressCreep()
-    setProgress(58)
-    setStatus("Transcribiendo…", "busy")
-    // Whisper runs as one opaque call; creep toward 86% over a rough
-    // estimate (~0.7× audio duration) so the bar keeps moving meanwhile.
+    setProgress(48)
+
+    // Whisper processes the audio in ~20s chunks (chunk_length 30s minus the
+    // two 5s overlaps). We know the total up front, so `chunk_callback` lets
+    // us advance the bar one real chunk at a time instead of one opaque jump.
+    const TR_START = 48
+    const TR_END = 90
     const audioSeconds = audio.length / 16000
-    startProgressCreep(58, 86, Math.max(4000, audioSeconds * 700))
+    const chunkSeconds = 30 - 2 * 5
+    const totalChunks = Math.max(1, Math.ceil(audioSeconds / chunkSeconds))
+    const chunkSpan = (TR_END - TR_START) / totalChunks
+    let chunksDone = 0
+    let lastChunkAt = performance.now()
+    // Rough first estimate; refined with the real timing of each finished chunk.
+    let perChunkMs = Math.max(2000, (audioSeconds / totalChunks) * 900)
+
+    const transcribeStatus = () => {
+      const processed = Math.min(audioSeconds, chunksDone * chunkSeconds)
+      setStatus(
+        `Step 4/5 · Transcribing… ${formatClock(processed)} / ${formatClock(
+          audioSeconds,
+        )}`,
+        "busy",
+      )
+    }
+
+    transcribeStatus()
+    applyProgress(TR_START)
+    // Creep across the first chunk until its callback lands.
+    startProgressCreep(TR_START, TR_START + chunkSpan, perChunkMs)
+
     const output = await asr(audio, {
       chunk_length_s: 30,
       stride_length_s: 5,
       return_timestamps: true,
       language: ui.inputLang.value || null,
+      chunk_callback: () => {
+        const now = performance.now()
+        perChunkMs = Math.max(500, now - lastChunkAt)
+        lastChunkAt = now
+        chunksDone = Math.min(totalChunks, chunksDone + 1)
+        const floor = Math.min(TR_END, TR_START + chunksDone * chunkSpan)
+        const ceiling = Math.min(TR_END, floor + chunkSpan)
+        transcribeStatus()
+        stopProgressCreep()
+        applyProgress(floor)
+        if (chunksDone < totalChunks)
+          startProgressCreep(floor, ceiling, perChunkMs)
+      },
     })
     stopProgressCreep()
-    setProgress(86)
+    setProgress(TR_END)
 
+    setStatus("Step 5/5 · Building subtitle lines…", "busy")
+    applyProgress(92)
     detectedLang =
       normalizeLanguageCode(output?.language) ||
       normalizeLanguageCode(ui.inputLang.value) ||
       "en"
-    ui.detected.textContent = `Detectado: ${LANGS[detectedLang]?.label || detectedLang}`
+    ui.detected.textContent = `Detected: ${LANGS[detectedLang]?.label || detectedLang}`
 
     baseSegments = normalizeSegments(output)
     if (!baseSegments.length)
-      throw new Error("No se detectó voz en el vídeo.")
+      throw new Error("No speech detected in the video.")
 
     const target = outputTarget(detectedLang)
     const targets = [detectedLang]
     if (target !== detectedLang && !targets.includes(target))
       targets.push(target)
 
+    // Translation (if any) gets the final 92%→100% stretch, split per language.
+    const TX_START = 92
+    const TX_SPAN = 100 - TX_START
     segmentsByLang = {}
     let done = 0
     for (const lang of targets) {
@@ -867,8 +913,8 @@ async function generate() {
         segmentsByLang[lang] = baseSegments.map((s) => ({ ...s }))
       } else {
         startProgressCreep(
-          86 + (done / targets.length) * 14,
-          86 + ((done + 1) / targets.length) * 14,
+          TX_START + (done / targets.length) * TX_SPAN,
+          TX_START + ((done + 1) / targets.length) * TX_SPAN,
           6000,
         )
         segmentsByLang[lang] = await translateSegments(
@@ -879,7 +925,7 @@ async function generate() {
         stopProgressCreep()
       }
       done += 1
-      setProgress(86 + (done / targets.length) * 14)
+      setProgress(TX_START + (done / targets.length) * TX_SPAN)
     }
 
     orderedLangs = targets
@@ -890,7 +936,7 @@ async function generate() {
     ui.addSegBtn.disabled = false
     setProgress(100)
     setStatus(
-      `Listo · ${baseSegments.length} líneas · ${targets.length} idioma(s).`,
+      `Ready · ${baseSegments.length} lines · ${targets.length} language(s).`,
       "ok",
     )
     setStage("editor")
@@ -898,7 +944,7 @@ async function generate() {
     ui.configProgress.hidden = true
   } catch (error) {
     console.error(error)
-    const message = error?.message || "Error durante la generación."
+    const message = error?.message || "Error during generation."
     setStatus(message, "error")
     setProgress(0)
     ui.configError.textContent = message
@@ -918,9 +964,9 @@ function enableExports(on) {
 // ── Rendering: language selects, tabs, segments ──
 function buildLangSelects() {
   ui.inputLang.innerHTML =
-    '<option value="">Detectar automáticamente</option>'
+    '<option value="">Detect automatically</option>'
   ui.outputLang.innerHTML =
-    '<option value="same">El mismo que el audio</option>'
+    '<option value="same">Same as audio</option>'
   Object.entries(LANGS).forEach(([code, { label }]) => {
     const inOpt = document.createElement("option")
     inOpt.value = code
@@ -958,7 +1004,7 @@ function renderSegments() {
   ui.segList.innerHTML = ""
   if (!segments.length) {
     ui.segList.innerHTML =
-      '<li class="seg-empty">Genera subtítulos para editarlos aquí.</li>'
+      '<li class="seg-empty">Generate subtitles to edit them here.</li>'
     ui.segCount.textContent = ""
     renderTimeline()
     return
@@ -969,19 +1015,19 @@ function renderSegments() {
     li.dataset.index = String(index)
     li.innerHTML = `
       <div class="seg-row">
-        <button class="seg-play" type="button" title="Ir a este momento" aria-label="Ir">
+        <button class="seg-play" type="button" title="Go to this moment" aria-label="Go">
           <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M3 2l5 3.5L3 9V2z" fill="currentColor"/></svg>
         </button>
-        <input class="t-input t-start" value="${formatClock(seg.start)}" aria-label="Inicio" />
+        <input class="t-input t-start" value="${formatClock(seg.start)}" aria-label="Start" />
         <span class="t-sep">→</span>
-        <input class="t-input t-end" value="${formatClock(seg.end)}" aria-label="Fin" />
-        <button class="seg-del" type="button" title="Eliminar línea" aria-label="Eliminar">✕</button>
+        <input class="t-input t-end" value="${formatClock(seg.end)}" aria-label="End" />
+        <button class="seg-del" type="button" title="Delete line" aria-label="Delete">✕</button>
       </div>
       <textarea class="seg-text" rows="2" spellcheck="false">${seg.text.replace(/</g, "&lt;")}</textarea>
     `
     ui.segList.appendChild(li)
   })
-  ui.segCount.textContent = `${segments.length} líneas`
+  ui.segCount.textContent = `${segments.length} lines`
   renderTimeline()
 }
 
@@ -1318,7 +1364,7 @@ function handleSelectedFile(file) {
   ui.meta.textContent = metaText
   ui.configMeta.textContent = metaText
   ui.detected.textContent = ""
-  setStatus("Vídeo cargado.", "ok")
+  setStatus("Video loaded.", "ok")
   setProgress(0)
   ui.configProgress.hidden = true
   ui.configError.hidden = true
@@ -1455,10 +1501,10 @@ function drawFrame(ctx, video, w, h, segments) {
 
 // ── Export progress modal ──
 const EXPORT_STEPS = [
-  { id: "prepare", label: "Preparando lienzo y audio" },
-  { id: "render", label: "Grabando vídeo con subtítulos" },
-  { id: "encode", label: "Generando el archivo" },
-  { id: "done", label: "Descarga lista" },
+  { id: "prepare", label: "Preparing canvas and audio" },
+  { id: "render", label: "Recording video with subtitles" },
+  { id: "encode", label: "Generating the file" },
+  { id: "done", label: "Download ready" },
 ]
 
 function openExportModal() {
@@ -1469,10 +1515,10 @@ function openExportModal() {
   ui.exportError.hidden = true
   ui.exportError.textContent = ""
   ui.exportClose.hidden = true
-  ui.exportTitle.textContent = "Exportando vídeo"
+  ui.exportTitle.textContent = "Exporting video"
   ui.exportHint.hidden = false
   setExportStep("prepare", "active")
-  setExportStage("Preparando…", "busy")
+  setExportStage("Preparing…", "busy")
   setExportProgress(0)
   ui.exportModal.hidden = false
 }
@@ -1499,7 +1545,7 @@ function setExportStep(id, state) {
 }
 
 function failExport(message) {
-  setExportStage("No se pudo exportar", "error")
+  setExportStage("Export failed", "error")
   ui.exportError.textContent = message
   ui.exportError.hidden = false
   ui.exportHint.hidden = true
@@ -1521,7 +1567,7 @@ async function downloadVideo() {
       : null
   if (!capture || typeof MediaRecorder === "undefined") {
     failExport(
-      "Tu navegador no permite exportar vídeo en el cliente. Prueba con Chrome o Edge de escritorio.",
+      "Your browser doesn't support client-side video export. Try desktop Chrome or Edge.",
     )
     return
   }
@@ -1548,7 +1594,7 @@ async function downloadVideo() {
       hasAudio = true
     })
   } catch (e) {
-    console.warn("Sin pista de audio para la exportación", e)
+    console.warn("No audio track for the export", e)
   }
 
   const mimeType =
@@ -1569,7 +1615,7 @@ async function downloadVideo() {
     ui.backBtn.disabled = false
     ui.transcribeBtn.disabled = false
     enableExports(true)
-    failExport("No se pudo iniciar la grabación del vídeo.")
+    failExport("Couldn't start the video recording.")
     return
   }
 
@@ -1582,7 +1628,7 @@ async function downloadVideo() {
     recorder.onstop = () => {
       setExportStep("render", "done")
       setExportStep("encode", "active")
-      setExportStage("Generando el archivo…", "busy")
+      setExportStage("Generating the file…", "busy")
       const blob = new Blob(chunks, { type: "video/webm" })
       const url = URL.createObjectURL(blob)
       const link = document.createElement("a")
@@ -1599,7 +1645,7 @@ async function downloadVideo() {
   video.muted = true
   video.volume = 0
 
-  setExportStage("Preparando el vídeo…", "busy")
+  setExportStage("Preparing the video…", "busy")
   video.pause()
   try {
     video.currentTime = 0
@@ -1610,12 +1656,12 @@ async function downloadVideo() {
   setExportStep("render", "active")
   setExportStage(
     hasAudio
-      ? "Grabando vídeo con subtítulos…"
-      : "Grabando vídeo con subtítulos (sin audio)…",
+      ? "Recording video with subtitles…"
+      : "Recording video with subtitles (no audio)…",
     "busy",
   )
   ui.exportHint.textContent =
-    "Mantén esta pestaña activa: el vídeo se reproduce una vez para grabarse."
+    "Keep this tab active: the video plays once to be recorded."
 
   let raf = 0
   let stopped = false
@@ -1660,7 +1706,7 @@ async function downloadVideo() {
     ui.transcribeBtn.disabled = false
     enableExports(true)
     failExport(
-      "El navegador bloqueó la reproducción necesaria para grabar. Inténtalo de nuevo.",
+      "The browser blocked the playback needed to record. Please try again.",
     )
     return
   }
@@ -1677,11 +1723,11 @@ async function downloadVideo() {
   setExportStep("encode", "done")
   setExportStep("done", "done")
   setExportProgress(100)
-  setExportStage("¡Vídeo exportado! Revisa tus descargas.", "ok")
-  ui.exportTitle.textContent = "Exportación completada"
+  setExportStage("Video exported! Check your downloads.", "ok")
+  ui.exportTitle.textContent = "Export complete"
   ui.exportHint.hidden = true
   ui.exportClose.hidden = false
-  setStatus("Vídeo exportado.", "ok")
+  setStatus("Video exported.", "ok")
 }
 
 // ── Global drag & drop ──

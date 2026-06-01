@@ -6,7 +6,7 @@ import ChevronLeft from "../assets/svg/chevron-left.svg"
   <header class="editor-top">
     <button id="config-back-btn" class="btn-ghost" type="button">
       <ChevronLeft />
-      Cambiar vídeo
+      Change video
     </button>
     <div id="config-meta" class="video-meta"></div>
   </header>
@@ -17,32 +17,32 @@ import ChevronLeft from "../assets/svg/chevron-left.svg"
     </div>
 
     <div class="config-form">
-      <h2 class="config-title">Configura tus subtítulos</h2>
+      <h2 class="config-title">Configure your subtitles</h2>
       <p class="config-sub">
-        Elige el idioma del audio y el idioma de los subtítulos.
+        Choose the audio language and the subtitle language.
       </p>
 
       <label class="field">
-        <span>Idioma del audio</span>
+        <span>Audio language</span>
         <select id="input-lang">
-          <option value="">Detectar automáticamente</option>
+          <option value="">Detect automatically</option>
         </select>
       </label>
 
       <label class="field">
-        <span>Idioma de los subtítulos</span>
+        <span>Subtitle language</span>
         <select id="output-lang">
-          <option value="same">El mismo que el audio</option>
+          <option value="same">Same as audio</option>
         </select>
       </label>
 
       <button id="transcribe-btn" class="btn-primary btn-block" type="button">
-        Generar subtítulos
+        Generate subtitles
       </button>
 
       <div id="config-progress" class="gen-progress" hidden>
         <div class="gen-progress-head">
-          <span id="config-status" class="gen-status">Preparando…</span>
+          <span id="config-status" class="gen-status">Preparing…</span>
           <span id="config-progress-pct" class="gen-pct">0%</span>
         </div>
         <div class="gen-track">
