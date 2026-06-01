@@ -1,0 +1,53 @@
+---
+import ChevronLeft from "../assets/svg/chevron-left.svg"
+import Download from "../assets/svg/download.svg"
+import SubtitleStyleBar from "./SubtitleStyleBar.astro"
+import EditorSidebar from "./EditorSidebar.astro"
+import Timeline from "./Timeline.astro"
+---
+
+<section id="stage-editor" class="stage-editor" hidden>
+  <header class="editor-top">
+    <button id="back-btn" class="btn-ghost" type="button">
+      <ChevronLeft />
+      Volver
+    </button>
+    <div id="video-meta" class="video-meta"></div>
+    <div class="editor-actions">
+      <button id="download-srt-btn" class="btn-soft" type="button" disabled>
+        <Download />
+        .srt
+      </button>
+      <button id="download-video-btn" class="btn-soft" type="button" disabled>
+        <Download />
+        Vídeo
+      </button>
+    </div>
+  </header>
+
+  <div class="editor-body">
+    <!-- Main column -->
+    <div class="editor-main">
+      <div class="video-preview">
+        <video id="video" controls playsinline></video>
+        <div id="caption-overlay" class="caption"></div>
+      </div>
+
+      <SubtitleStyleBar />
+
+      <div class="status-line">
+        <div class="status-meta">
+          <span id="status" class="status-text">Vídeo cargado.</span>
+          <span id="detected-language" class="detected-lang"></span>
+        </div>
+        <div class="progress-track" aria-live="polite">
+          <div id="progress" class="progress-fill"></div>
+        </div>
+      </div>
+    </div>
+
+    <EditorSidebar />
+  </div>
+
+  <Timeline />
+</section>

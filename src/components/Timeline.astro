@@ -1,0 +1,40 @@
+---
+import Play from "../assets/svg/play.svg"
+import Pause from "../assets/svg/pause.svg"
+---
+
+<div class="timeline" id="timeline">
+  <div class="timeline-toolbar">
+    <button
+      id="tl-play"
+      class="tl-play"
+      type="button"
+      aria-label="Reproducir / pausar"
+    >
+      <Play class="ic-play" />
+      <Pause class="ic-pause" />
+    </button>
+    <span id="tl-clock" class="tl-clock">0:00.00 / 0:00.00</span>
+    <div class="tl-zoom">
+      <button
+        id="tl-zoom-out"
+        class="tl-zoom-btn"
+        type="button"
+        aria-label="Alejar">−</button
+      >
+      <button
+        id="tl-zoom-in"
+        class="tl-zoom-btn"
+        type="button"
+        aria-label="Acercar">+</button
+      >
+    </div>
+  </div>
+  <div class="timeline-scroll" id="timeline-scroll">
+    <div class="timeline-track" id="timeline-track">
+      <div class="timeline-ruler" id="timeline-ruler"></div>
+      <div class="timeline-blocks" id="timeline-blocks"></div>
+      <div class="timeline-playhead" id="timeline-playhead"></div>
+    </div>
+  </div>
+</div>

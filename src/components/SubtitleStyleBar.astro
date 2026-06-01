@@ -1,0 +1,79 @@
+---
+import Sliders from "../assets/svg/sliders.svg"
+---
+
+<div class="style-bar">
+  <div class="style-bar-head">
+    <div
+      id="style-presets"
+      class="style-presets"
+      role="tablist"
+      aria-label="Subtitle style presets"
+    >
+    </div>
+    <button
+      id="style-toggle"
+      class="style-toggle"
+      type="button"
+      aria-expanded="false"
+      aria-controls="style-controls"
+    >
+      <Sliders />
+      Customize
+    </button>
+  </div>
+
+  <div id="style-controls" class="style-controls" hidden>
+    <div class="sc-row">
+      <label class="sc-field">
+        <span>Font</span>
+        <select id="cs-font">
+          <option value="sans">Sans</option>
+          <option value="serif">Serif</option>
+          <option value="rounded">Rounded</option>
+          <option value="condensed">Condensed</option>
+          <option value="mono">Mono</option>
+        </select>
+      </label>
+      <label class="sc-field">
+        <span>Size</span>
+        <input id="cs-size" type="range" min="0.7" max="1.6" step="0.05" />
+      </label>
+      <div class="sc-field">
+        <span>Position</span>
+        <div id="cs-position" class="sc-seg">
+          <button type="button" data-pos="top">Top</button>
+          <button type="button" data-pos="middle">Mid</button>
+          <button type="button" data-pos="bottom">Bottom</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="sc-row">
+      <label class="sc-field sc-color">
+        <span>Text</span>
+        <input id="cs-color" type="color" />
+      </label>
+      <label class="sc-toggle">
+        <input id="cs-bold" type="checkbox" />
+        <span>Bold</span>
+      </label>
+      <label class="sc-toggle">
+        <input id="cs-outline" type="checkbox" />
+        <span>Outline</span>
+      </label>
+      <label class="sc-toggle">
+        <input id="cs-bg" type="checkbox" />
+        <span>Background</span>
+      </label>
+      <label class="sc-field sc-color">
+        <span>BG color</span>
+        <input id="cs-bgcolor" type="color" />
+      </label>
+      <label class="sc-field">
+        <span>BG opacity</span>
+        <input id="cs-bgopacity" type="range" min="0" max="1" step="0.05" />
+      </label>
+    </div>
+  </div>
+</div>
