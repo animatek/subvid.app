@@ -4,7 +4,6 @@ import { FFmpeg } from "@ffmpeg/ffmpeg"
 // worker — resolving its relative imports — and serve it same-origin.
 import ffmpegWorkerURL from "@ffmpeg/ffmpeg/worker?worker&url"
 import { fetchFile } from "@ffmpeg/util"
-import { env, pipeline } from "@xenova/transformers"
 import { $, $$ } from "./dom.ts"
 
 const ASR_MODEL = "Xenova/whisper-base"
@@ -163,8 +162,10 @@ const ui = {
   video: $<HTMLVideoElement>("#video"),
   configVideo: $<HTMLVideoElement>("#config-video"),
   caption: $("#caption-overlay"),
-  status: $("#status"),
-  progress: $("#progress"),
+  videoPreview: $("#video-preview"),
+  vpMute: $("#vp-mute"),
+  vpVolume: $<HTMLInputElement>("#vp-volume"),
+  vpFullscreen: $("#vp-fullscreen"),
   configProgress: $("#config-progress"),
   configProgressFill: $("#config-progress-fill"),
   configProgressPct: $("#config-progress-pct"),
@@ -172,7 +173,6 @@ const ui = {
   configError: $("#config-error"),
   meta: $("#video-meta"),
   configMeta: $("#config-meta"),
-  detected: $("#detected-language"),
   inputLang: $<HTMLSelectElement>("#input-lang"),
   outputLang: $<HTMLSelectElement>("#output-lang"),
   configBackBtn: $("#config-back-btn"),
@@ -184,6 +184,8 @@ const ui = {
   downloadVideoBtn: $<HTMLButtonElement>("#download-video-btn"),
   downloadSrtBtn: $<HTMLButtonElement>("#download-srt-btn"),
   backBtn: $("#back-btn"),
+  undoBtn: $<HTMLButtonElement>("#undo-btn"),
+  redoBtn: $<HTMLButtonElement>("#redo-btn"),
   stylePresets: $("#style-presets"),
   styleToggle: $("#style-toggle"),
   styleControls: $("#style-controls"),
@@ -214,6 +216,8 @@ const ui = {
   downloadsOverall: $("#downloads-overall"),
   downloadsPanel: $("#downloads-panel"),
   downloadsList: $("#downloads-list"),
+  clearModelsBtn: $<HTMLButtonElement>("#clear-models-btn"),
+  clearModelsNote: $("#clear-models-note"),
   statusDock: $("#status-dock"),
   timeline: $("#timeline"),
   timelineScroll: $("#timeline-scroll"),
@@ -267,39 +271,144 @@ let orderedLangs = []
 let activeLang = ""
 
 let ffmpeg = null
-let recognizer = null
-let translator = null
+let asrReady = false
+let translationReady = false
 let dragDepth = 0
 let exporting = false
 let onFfmpegProgress = null
 let progressRaf = 0
 
-env.allowLocalModels = false
-env.useBrowserCache = true
-
 const hasWebGPU = typeof navigator !== "undefined" && "gpu" in navigator
+
+// ── transformers.js worker (keeps model loading + inference off the main
+// thread so the UI never freezes) ──
+const transformersWorker = new Worker(
+  new URL("./transcriber.worker.ts", import.meta.url),
+  { type: "module" },
+)
+const asrTracker = makeTransformersTracker("asr")
+const translationTracker = makeTransformersTracker("translation")
+let onAsrChunk = null
+let workerReqId = 0
+const workerPending = new Map()
+
+transformersWorker.onmessage = (event) => {
+  const { id, type } = event.data || {}
+  if (type === "progress") {
+    if (event.data.key === "asr") asrTracker(event.data.payload)
+    else if (event.data.key === "translation")
+      translationTracker(event.data.payload)
+    return
+  }
+  if (type === "chunk") {
+    if (typeof onAsrChunk === "function") onAsrChunk()
+    return
+  }
+  const pending = workerPending.get(id)
+  if (!pending) return
+  workerPending.delete(id)
+  if (type === "error") pending.reject(new Error(event.data.error))
+  else pending.resolve(event.data.result)
+}
+
+function callTransformersWorker(type, payload, transfer = []) {
+  const id = ++workerReqId
+  return new Promise((resolve, reject) => {
+    workerPending.set(id, { resolve, reject })
+    transformersWorker.postMessage({ id, type, payload }, transfer)
+  })
+}
 
 const currentSegments = () => segmentsByLang[activeLang] || []
 
+// ── Undo / redo history ──
+// Snapshots of the whole per-language segment map. Any edit (text, timings,
+// add/delete, timeline drag) records the pre-change state so it can be undone
+// and redone.
+const HISTORY_LIMIT = 100
+let undoStack = []
+let redoStack = []
+// Pre-edit snapshot captured when a text field gains focus, committed on blur
+// only if the text actually changed (so a whole edit = one undo step).
+let textEditSnapshot = null
+
+function snapshotSegments() {
+  return JSON.stringify(segmentsByLang)
+}
+
+function refreshHistoryButtons() {
+  if (ui.undoBtn) ui.undoBtn.disabled = undoStack.length === 0
+  if (ui.redoBtn) ui.redoBtn.disabled = redoStack.length === 0
+}
+
+function resetHistory() {
+  undoStack = []
+  redoStack = []
+  refreshHistoryButtons()
+}
+
+// Record the state *before* a mutation. Call this right before changing
+// segments; a new edit clears the redo branch.
+function pushHistory(snapshotBefore) {
+  undoStack.push(snapshotBefore)
+  if (undoStack.length > HISTORY_LIMIT) undoStack.shift()
+  redoStack = []
+  refreshHistoryButtons()
+}
+
+function restoreSnapshot(json) {
+  segmentsByLang = JSON.parse(json)
+  if (!segmentsByLang[activeLang]) {
+    const langs = Object.keys(segmentsByLang)
+    if (langs.length) activeLang = langs[0]
+  }
+  renderSegments() // also re-renders the timeline
+  enableExports(true)
+  updateCaption()
+}
+
+function undo() {
+  if (!undoStack.length) return
+  redoStack.push(snapshotSegments())
+  restoreSnapshot(undoStack.pop())
+  refreshHistoryButtons()
+}
+
+function redo() {
+  if (!redoStack.length) return
+  undoStack.push(snapshotSegments())
+  restoreSnapshot(redoStack.pop())
+  refreshHistoryButtons()
+}
+
 // ── Helpers ──
 function setStatus(message, kind = "ok") {
-  ui.status.textContent = message
-  ui.status.dataset.kind = kind
-  // Mirror to the config stage (visible while generating, before the
-  // editor stage is shown).
+  // Shown on the config stage while generating (the editor has no status line).
   ui.configStatus.textContent = message
   ui.configStatus.dataset.kind = kind
 }
 
 function setProgress(percent) {
-  stopProgressCreep()
+  setIndeterminate(false)
   applyProgress(percent)
+}
+
+// Switch the bar to/from an indeterminate CSS animation. Used for opaque steps
+// of unknown duration (audio extraction) so the bar keeps moving on the
+// compositor thread instead of freezing when there's no real progress to show.
+let progressIndeterminate = false
+function setIndeterminate(on) {
+  if (on) stopProgressCreep()
+  progressIndeterminate = on
+  ui.configProgressFill.classList.toggle("is-indeterminate", on)
+  // The moving stripe is the cue; a numeric % would just sit there frozen.
+  if (on) ui.configProgressPct.textContent = ""
 }
 
 // Directly paint a progress value without touching any running animation.
 function applyProgress(percent) {
+  if (progressIndeterminate) return
   const clamped = Math.max(0, Math.min(100, percent))
-  ui.progress.style.width = `${clamped}%`
   ui.configProgressFill.style.width = `${clamped}%`
   ui.configProgressPct.textContent = `${Math.round(clamped)}%`
 }
@@ -431,10 +540,7 @@ function setStage(stage) {
 
 // ── Model download status ──
 const STATE_LABEL = {
-  pending: "Waiting",
-  downloading: "Downloading",
-  ready: "Ready",
-  error: "Error",
+  error: "Download failed",
 }
 
 function trackSpeed(item, loaded) {
@@ -552,17 +658,27 @@ function renderDownloads() {
   ui.downloadsList.innerHTML = ""
   Object.values(downloads).forEach((item) => {
     const pct = item.state === "ready" ? 100 : Math.round(item.progress)
-    const sizeInfo = item.total
-      ? `${prettifyBytes(item.loaded)} / ${prettifyBytes(item.total)}`
-      : ""
+    // When an item is ready loaded === total, so showing both is noise.
+    const sizeInfo =
+      item.state === "ready" && item.total
+        ? prettifyBytes(item.total)
+        : item.total
+          ? `${prettifyBytes(item.loaded)} / ${prettifyBytes(item.total)}`
+          : ""
     const speedInfo =
       item.state === "downloading" && item.speed > 0
         ? `${prettifyBytes(item.speed)}/s`
         : ""
     const meta = [speedInfo, sizeInfo].filter(Boolean).join(" · ")
     const showTrack = item.state === "downloading"
-    const footMeta =
-      item.state === "pending" && item.pendingNote ? item.pendingNote : meta
+    // The icon + colour already convey the state, so the foot only carries the
+    // extra detail that isn't obvious from the row itself.
+    const footText =
+      item.state === "pending"
+        ? item.pendingNote || ""
+        : item.state === "error"
+          ? STATE_LABEL.error
+          : meta
     const li = document.createElement("li")
     li.className = `item item-${item.state}`
     li.innerHTML = `
@@ -570,7 +686,11 @@ function renderDownloads() {
       <div class="item-body">
         <div class="item-head">
           <strong>${item.label}</strong>
-          <span class="item-pct">${item.state === "ready" ? "✓" : `${pct}%`}</span>
+          ${
+            item.state === "downloading"
+              ? `<span class="item-pct">${pct}%</span>`
+              : ""
+          }
         </div>
         ${
           showTrack
@@ -579,10 +699,7 @@ function renderDownloads() {
               </div>`
             : ""
         }
-        <div class="item-foot">
-          <span class="item-state">${STATE_LABEL[item.state] || item.state}</span>
-          <span class="item-meta">${footMeta}</span>
-        </div>
+        ${footText ? `<span class="item-foot">${footText}</span>` : ""}
       </div>`
     ui.downloadsList.appendChild(li)
   })
@@ -639,6 +756,109 @@ function renderDownloads() {
       : "busy"
 }
 
+// ── Clear locally cached models ──
+// transformers.js stores the Whisper + translation weights in the Cache
+// Storage API (bucket name "transformers-cache"). Deleting those frees the
+// disk space; the models simply re-download on the next visit. The FFmpeg core
+// lives in the regular HTTP cache (fetched from a CDN) and can't be cleared
+// programmatically, so we only touch what we actually own.
+let clearConfirmTimer = 0
+let cachedModelsBytes = 0
+
+function clearModelsLabel() {
+  return cachedModelsBytes > 0
+    ? `Delete downloaded models (${prettifyBytes(cachedModelsBytes)})`
+    : "No downloaded models"
+}
+
+// Sum the byte size of everything transformers.js has cached, so we can show
+// the user exactly how much will be freed before they delete it. Cached CDN/HF
+// responses carry a content-length; fall back to reading the blob otherwise.
+async function getCachedModelsSize() {
+  if (typeof caches === "undefined") return 0
+  let total = 0
+  try {
+    const keys = await caches.keys()
+    const targets = keys.filter((k) => /transformers/i.test(k))
+    for (const key of targets) {
+      const cache = await caches.open(key)
+      const requests = await cache.keys()
+      for (const req of requests) {
+        const res = await cache.match(req)
+        if (!res) continue
+        const len = Number(res.headers.get("content-length"))
+        total += len || (await res.clone().blob()).size
+      }
+    }
+  } catch (e) {
+    console.warn("[clear-models] size calc failed", e)
+  }
+  return total
+}
+
+// Refresh the button's label + enabled state with the current cache size.
+async function refreshClearModelsUI() {
+  const btn = ui.clearModelsBtn
+  if (!btn || btn.dataset.confirm === "1" || btn.dataset.busy === "1") return
+  cachedModelsBytes = await getCachedModelsSize()
+  btn.textContent = clearModelsLabel()
+  btn.disabled = cachedModelsBytes === 0
+}
+
+async function clearLocalModels() {
+  const btn = ui.clearModelsBtn
+  if (!btn || !cachedModelsBytes) return
+
+  // Two-step inline confirm so an accidental click doesn't wipe the cache.
+  if (btn.dataset.confirm !== "1") {
+    btn.dataset.confirm = "1"
+    btn.classList.add("is-confirm")
+    btn.textContent = `Delete ${prettifyBytes(cachedModelsBytes)}? Click to confirm`
+    clearTimeout(clearConfirmTimer)
+    clearConfirmTimer = window.setTimeout(() => {
+      btn.dataset.confirm = ""
+      btn.classList.remove("is-confirm")
+      btn.textContent = clearModelsLabel()
+    }, 3500)
+    return
+  }
+
+  clearTimeout(clearConfirmTimer)
+  btn.dataset.confirm = ""
+  btn.dataset.busy = "1"
+  btn.classList.remove("is-confirm")
+  btn.disabled = true
+  btn.textContent = "Deleting…"
+
+  const freed = cachedModelsBytes
+  let deleted = false
+  try {
+    if (typeof caches !== "undefined") {
+      const keys = await caches.keys()
+      const targets = keys.filter((k) => /transformers/i.test(k))
+      await Promise.all(
+        (targets.length ? targets : ["transformers-cache"]).map((k) =>
+          caches.delete(k),
+        ),
+      )
+      deleted = true
+    }
+  } catch (e) {
+    console.warn("[clear-models] failed to delete cache", e)
+  }
+
+  btn.dataset.busy = ""
+  cachedModelsBytes = 0
+  btn.textContent = clearModelsLabel()
+  btn.disabled = true
+  if (ui.clearModelsNote) {
+    ui.clearModelsNote.hidden = false
+    ui.clearModelsNote.textContent = deleted
+      ? `Freed ${prettifyBytes(freed)} · models re-download next visit.`
+      : "Couldn't access the model cache."
+  }
+}
+
 // ── Lazy model loaders ──
 async function ensureFfmpeg() {
   if (ffmpeg) return ffmpeg
@@ -673,7 +893,11 @@ async function ensureFfmpeg() {
     console.info(`[ffmpeg:${type}] ${message}`)
   })
   ffmpeg.on("progress", ({ progress, time }) => {
-    if (typeof onFfmpegProgress === "function") onFfmpegProgress(progress)
+    // `time` is in microseconds; expose seconds so callers can compute a
+    // reliable ratio against the known media duration (ffmpeg's own
+    // `progress` is sparse/erratic for audio-only extraction).
+    if (typeof onFfmpegProgress === "function")
+      onFfmpegProgress(progress, (time || 0) / 1e6)
   })
 
   console.info("[ffmpeg] calling load()…")
@@ -701,27 +925,24 @@ async function ensureFfmpeg() {
 }
 
 async function ensureRecognizer() {
-  if (recognizer) return recognizer
+  if (asrReady) return
   updateDownloadStatus("asr", "downloading")
-  const options = { progress_callback: makeTransformersTracker("asr") }
-  if (hasWebGPU) options.device = "webgpu"
-  recognizer = await pipeline(
-    "automatic-speech-recognition",
-    ASR_MODEL,
-    options,
-  )
+  await callTransformersWorker("ensure-asr", {
+    model: ASR_MODEL,
+    webgpu: hasWebGPU,
+  })
+  asrReady = true
   updateDownloadStatus("asr", "ready")
-  return recognizer
 }
 
 async function ensureTranslator() {
-  if (translator) return translator
+  if (translationReady) return
   updateDownloadStatus("translation", "downloading")
-  translator = await pipeline("translation", TRANSLATION_MODEL, {
-    progress_callback: makeTransformersTracker("translation"),
+  await callTransformersWorker("ensure-translation", {
+    model: TRANSLATION_MODEL,
   })
+  translationReady = true
   updateDownloadStatus("translation", "ready")
-  return translator
 }
 
 async function preloadAssetsInBackground() {
@@ -737,29 +958,77 @@ async function preloadAssetsInBackground() {
   ])
 }
 
+// Decode a PCM WAV (as produced by ffmpeg: pcm_s16le, mono, 16kHz) into a
+// Float32Array, reporting progress as we walk the samples and yielding to the
+// event loop so the progress bar can repaint. Returns null when the container
+// isn't plain 16-bit PCM, so the caller can fall back to decodeAudioData.
+async function decodeWavPcm16(bytes, onProgress) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  if (view.byteLength < 44) return null
+  // 'RIFF' .... 'WAVE'
+  if (view.getUint32(0, false) !== 0x52494646) return null
+  if (view.getUint32(8, false) !== 0x57415645) return null
+
+  let offset = 12
+  let channels = 0
+  let audioFormat = 0
+  let bitsPerSample = 0
+  let dataOffset = -1
+  let dataLength = 0
+  while (offset + 8 <= view.byteLength) {
+    const id = view.getUint32(offset, false)
+    const size = view.getUint32(offset + 4, true)
+    const body = offset + 8
+    if (id === 0x666d7420 /* 'fmt ' */) {
+      audioFormat = view.getUint16(body, true)
+      channels = view.getUint16(body + 2, true)
+      bitsPerSample = view.getUint16(body + 14, true)
+    } else if (id === 0x64617461 /* 'data' */) {
+      dataOffset = body
+      dataLength = Math.min(size, view.byteLength - body)
+    }
+    // Chunks are word-aligned (padded to an even byte count).
+    offset = body + size + (size & 1)
+  }
+  if (audioFormat !== 1 || bitsPerSample !== 16 || dataOffset < 0) return null
+
+  const ch = Math.max(1, channels)
+  const stride = 2 * ch
+  const frames = Math.floor(dataLength / stride)
+  const out = new Float32Array(frames)
+  // ~6s of audio per block at 16kHz: enough blocks to animate smoothly while
+  // staying cheap enough to finish quickly.
+  const BLOCK = 96_000
+  for (let i = 0; i < frames; i += BLOCK) {
+    const end = Math.min(frames, i + BLOCK)
+    for (let f = i; f < end; f++) {
+      // Mono mix not needed — ffmpeg already gave us one channel — but read
+      // the first channel defensively in case the format differs.
+      out[f] = view.getInt16(dataOffset + f * stride, true) / 32768
+    }
+    onProgress?.(frames ? end / frames : 1)
+    // Hand control back so the browser paints the updated bar.
+    await new Promise((r) => setTimeout(r, 0))
+  }
+  return out
+}
+
 // ── Audio extraction ──
 async function extractAudioBuffer(file) {
-  setStatus("Step 1/5 · Loading FFmpeg…", "busy")
-  startProgressCreep(2, 10, 4000)
-  const worker = await ensureFfmpeg()
-  stopProgressCreep()
-  setProgress(10)
   const inputName = "input-video"
   const outputName = "audio.wav"
+
+  // Loading ffmpeg, copying the file in and the actual demux are opaque steps
+  // of unknown duration. ffmpeg runs in its own web worker (so it doesn't block
+  // the UI), but it emits no usable progress for audio-only (`-vn`) extraction.
+  // An indeterminate CSS bar keeps animating on the compositor throughout, so
+  // it never looks frozen — and no misleading percentage is shown.
+  setIndeterminate(true)
+  setStatus("Step 1/5 · Loading FFmpeg…", "busy")
+  const worker = await ensureFfmpeg()
   setStatus("Step 2/5 · Reading video file…", "busy")
-  startProgressCreep(10, 16, 2500)
   await worker.writeFile(inputName, await fetchFile(file))
-  stopProgressCreep()
-  setProgress(16)
   setStatus("Step 2/5 · Extracting audio track…", "busy")
-  // ffmpeg reports decode progress as 0→1; map it onto 16%→32% so the bar
-  // moves continuously while the audio track is demuxed.
-  onFfmpegProgress = (p) => {
-    const ratio = Math.max(0, Math.min(1, p || 0))
-    const pct = Math.round(ratio * 100)
-    setStatus(`Step 2/5 · Extracting audio track… ${pct}%`, "busy")
-    applyProgress(16 + ratio * 16)
-  }
   await worker.exec([
     "-i",
     inputName,
@@ -772,22 +1041,39 @@ async function extractAudioBuffer(file) {
     "wav",
     outputName,
   ])
-  onFfmpegProgress = null
-  setStatus("Step 3/5 · Decoding audio…", "busy")
-  // readFile + decodeAudioData are opaque; creep 32→38 so it keeps moving.
-  startProgressCreep(32, 38, 2500)
+
+  // Back to a real, determinate bar for the parts we can measure.
+  setStatus("Step 3/5 · Reading audio…", "busy")
+  setProgress(32)
   const outputData = await worker.readFile(outputName)
   await worker.deleteFile(inputName)
   await worker.deleteFile(outputName)
-  const audioContext = new AudioContext({ sampleRate: 16000 })
-  const decoded = await audioContext.decodeAudioData(
-    outputData.buffer.slice(0),
-  )
-  const mono = decoded.getChannelData(0)
-  const copied = new Float32Array(mono.length)
-  copied.set(mono)
-  await audioContext.close()
-  stopProgressCreep()
+  applyProgress(34)
+
+  const bytes =
+    outputData instanceof Uint8Array
+      ? outputData
+      : new Uint8Array(outputData as ArrayBuffer)
+
+  setStatus("Step 3/5 · Decoding audio…", "busy")
+  // Parse the PCM WAV ourselves so the decode advances sample-by-sample
+  // (34%→38%) instead of freezing on the opaque decodeAudioData call.
+  let copied = await decodeWavPcm16(bytes, (ratio) => {
+    applyProgress(34 + ratio * 4)
+  })
+
+  if (!copied) {
+    // Fallback for unexpected containers: let the browser decode it.
+    startProgressCreep(34, 38, 2500)
+    const audioContext = new AudioContext({ sampleRate: 16000 })
+    const decoded = await audioContext.decodeAudioData(bytes.buffer.slice(0))
+    const mono = decoded.getChannelData(0)
+    copied = new Float32Array(mono.length)
+    copied.set(mono)
+    await audioContext.close()
+    stopProgressCreep()
+  }
+
   setProgress(38)
   return copied
 }
@@ -799,11 +1085,12 @@ async function translateSegments(segments, sourceLang, targetLang) {
   if (!LANGS[sourceLang] || !LANGS[targetLang])
     return segments.map((s) => ({ ...s }))
   setStatus(`Step 5/5 · Translating to ${LANGS[targetLang].label}…`, "busy")
-  const worker = await ensureTranslator()
+  await ensureTranslator()
   const texts = segments.map((s) => s.text)
-  const translated = await worker(texts, {
-    src_lang: LANGS[sourceLang].nllb,
-    tgt_lang: LANGS[targetLang].nllb,
+  const translated = await callTransformersWorker("translate", {
+    texts,
+    src: LANGS[sourceLang].nllb,
+    tgt: LANGS[targetLang].nllb,
   })
   const normalized = Array.isArray(translated) ? translated : [translated]
   return segments.map((s, i) => ({
@@ -830,9 +1117,26 @@ async function generate() {
   try {
     const audio = await extractAudioBuffer(selectedVideoFile)
     setStatus("Step 4/5 · Loading speech model…", "busy")
+    // On the first run the Whisper model is downloaded; mirror that real
+    // byte progress onto 38%→48%. When it's already cached the download is
+    // instant, so fall back to a gentle creep for the (opaque) warm-up.
     startProgressCreep(38, 48, 8000)
-    const asr = await ensureRecognizer()
-    stopProgressCreep()
+    const asrMonitor = setInterval(() => {
+      const d = downloads.asr
+      if (d.state === "downloading" && d.total) {
+        stopProgressCreep()
+        const ratio = Math.min(1, d.progress / 100)
+        applyProgress(38 + ratio * 10)
+        const meta = prettifyBytes(d.loaded) + " / " + prettifyBytes(d.total)
+        setStatus(`Step 4/5 · Downloading speech model… ${meta}`, "busy")
+      }
+    }, 200)
+    try {
+      await ensureRecognizer()
+    } finally {
+      clearInterval(asrMonitor)
+      stopProgressCreep()
+    }
     setProgress(48)
 
     // Whisper processes the audio in ~20s chunks (chunk_length 30s minus the
@@ -850,13 +1154,7 @@ async function generate() {
     let perChunkMs = Math.max(2000, (audioSeconds / totalChunks) * 900)
 
     const transcribeStatus = () => {
-      const processed = Math.min(audioSeconds, chunksDone * chunkSeconds)
-      setStatus(
-        `Step 4/5 · Transcribing… ${formatClock(processed)} / ${formatClock(
-          audioSeconds,
-        )}`,
-        "busy",
-      )
+      setStatus("Step 4/5 · Transcribing…", "busy")
     }
 
     transcribeStatus()
@@ -864,25 +1162,32 @@ async function generate() {
     // Creep across the first chunk until its callback lands.
     startProgressCreep(TR_START, TR_START + chunkSpan, perChunkMs)
 
-    const output = await asr(audio, {
-      chunk_length_s: 30,
-      stride_length_s: 5,
-      return_timestamps: true,
-      language: ui.inputLang.value || null,
-      chunk_callback: () => {
-        const now = performance.now()
-        perChunkMs = Math.max(500, now - lastChunkAt)
-        lastChunkAt = now
-        chunksDone = Math.min(totalChunks, chunksDone + 1)
-        const floor = Math.min(TR_END, TR_START + chunksDone * chunkSpan)
-        const ceiling = Math.min(TR_END, floor + chunkSpan)
-        transcribeStatus()
-        stopProgressCreep()
-        applyProgress(floor)
-        if (chunksDone < totalChunks)
-          startProgressCreep(floor, ceiling, perChunkMs)
-      },
-    })
+    // The worker streams a "chunk" message after each ~20s window it finishes.
+    onAsrChunk = () => {
+      const now = performance.now()
+      perChunkMs = Math.max(500, now - lastChunkAt)
+      lastChunkAt = now
+      chunksDone = Math.min(totalChunks, chunksDone + 1)
+      const floor = Math.min(TR_END, TR_START + chunksDone * chunkSpan)
+      const ceiling = Math.min(TR_END, floor + chunkSpan)
+      transcribeStatus()
+      stopProgressCreep()
+      applyProgress(floor)
+      if (chunksDone < totalChunks)
+        startProgressCreep(floor, ceiling, perChunkMs)
+    }
+
+    let output
+    try {
+      // Transfer the audio buffer so it's moved (not copied) to the worker.
+      output = await callTransformersWorker(
+        "transcribe",
+        { audio, language: ui.inputLang.value || null },
+        [audio.buffer],
+      )
+    } finally {
+      onAsrChunk = null
+    }
     stopProgressCreep()
     setProgress(TR_END)
 
@@ -892,7 +1197,6 @@ async function generate() {
       normalizeLanguageCode(output?.language) ||
       normalizeLanguageCode(ui.inputLang.value) ||
       "en"
-    ui.detected.textContent = `Detected: ${LANGS[detectedLang]?.label || detectedLang}`
 
     baseSegments = normalizeSegments(output)
     if (!baseSegments.length)
@@ -934,6 +1238,8 @@ async function generate() {
     renderSegments()
     enableExports(true)
     ui.addSegBtn.disabled = false
+    // The freshly generated transcription is the baseline; nothing to undo to.
+    resetHistory()
     setProgress(100)
     setStatus(
       `Ready · ${baseSegments.length} lines · ${targets.length} language(s).`,
@@ -1061,10 +1367,12 @@ ui.segList.addEventListener("change", (event) => {
       )
       return
     }
+    const before = snapshotSegments()
     if (event.target.classList.contains("t-start")) seg.start = parsed
     else seg.end = parsed
     if (seg.end <= seg.start) seg.end = seg.start + 0.5
     currentSegments().sort((a, b) => a.start - b.start)
+    pushHistory(before)
     renderSegments()
     updateCaption()
   }
@@ -1080,11 +1388,16 @@ ui.segList.addEventListener("click", (event) => {
     ui.video.currentTime = seg.start
     ui.video.play().catch(() => {})
   } else if (event.target.closest(".seg-del")) {
+    const before = snapshotSegments()
     currentSegments().splice(index, 1)
+    pushHistory(before)
     renderSegments()
     enableExports(true)
     updateCaption()
+    return
   }
+  // Selecting a line in the sidebar reveals + highlights it on the timeline.
+  highlightSegment(index, { scrollTimeline: true })
 })
 
 // Editing a line moves the video to that moment.
@@ -1098,15 +1411,28 @@ ui.segList.addEventListener("focusin", (event) => {
   const index = Number(li.dataset.index)
   const seg = currentSegments()[index]
   if (!seg) return
+  if (event.target.classList.contains("seg-text"))
+    textEditSnapshot = snapshotSegments()
   if (Math.abs(ui.video.currentTime - seg.start) > 0.05)
     ui.video.currentTime = seg.start
+  highlightSegment(index, { scrollTimeline: true })
+})
+
+// Commit a text edit as a single undo step when the field loses focus.
+ui.segList.addEventListener("focusout", (event) => {
+  if (!event.target.classList?.contains("seg-text")) return
+  if (textEditSnapshot && snapshotSegments() !== textEditSnapshot)
+    pushHistory(textEditSnapshot)
+  textEditSnapshot = null
 })
 
 ui.addSegBtn.addEventListener("click", () => {
+  const before = snapshotSegments()
   const segments = currentSegments()
   const t = ui.video.currentTime || 0
   segments.push({ start: t, end: t + 2, text: "" })
   segments.sort((a, b) => a.start - b.start)
+  pushHistory(before)
   renderSegments()
   enableExports(true)
   const created = $(
@@ -1166,15 +1492,16 @@ function renderTimeline() {
   updateTimelinePlayhead()
 }
 
-function updateTimelinePlayhead() {
+function updateTimelinePlayhead(timeOverride) {
   if (!ui.timelinePlayhead) return
-  const t = ui.video.currentTime || 0
-  ui.timelinePlayhead.style.left = `${t * tlPxPerSec}px`
+  const t = timeOverride ?? ui.video.currentTime ?? 0
+  const x = t * tlPxPerSec
+  // transform (vs left) keeps the move on the compositor for sub-pixel smoothness.
+  ui.timelinePlayhead.style.transform = `translate3d(${x}px,0,0)`
   if (ui.tlClock)
     ui.tlClock.textContent = `${formatClock(t)} / ${formatClock(tlTotalDuration())}`
   // Keep the playhead in view while playing.
   if (!ui.video.paused && ui.timelineScroll) {
-    const x = t * tlPxPerSec
     const view = ui.timelineScroll
     if (
       x < view.scrollLeft + 60 ||
@@ -1197,16 +1524,56 @@ function setTimelineActive(idx) {
   }
 }
 
-function seekFromTimelineEvent(event) {
-  const rect = ui.timelineTrack.getBoundingClientRect()
-  const x = event.clientX - rect.left
-  const t = Math.max(0, Math.min(tlTotalDuration(), x / tlPxPerSec))
-  ui.video.currentTime = t
-  updateCaption()
+// ── Playhead scrubbing ──
+// Dragging anywhere on the ruler / empty timeline moves the playhead smoothly
+// across the whole timeline. The needle follows the cursor immediately (so it
+// feels fluid even when the video can only seek a few times per second), while
+// the actual video seek is throttled to one per animation frame.
+let scrubbing = false
+let scrubRaf = 0
+let scrubTargetT = 0
+
+function scheduleScrubSeek() {
+  if (scrubRaf) return
+  scrubRaf = requestAnimationFrame(() => {
+    scrubRaf = 0
+    ui.video.currentTime = scrubTargetT
+    updateCaption()
+  })
 }
 
-// Seek by clicking the ruler.
-ui.timelineRuler?.addEventListener("pointerdown", seekFromTimelineEvent)
+function scrubToClientX(clientX) {
+  const rect = ui.timelineTrack.getBoundingClientRect()
+  const dur = tlTotalDuration()
+  const t = Math.max(0, Math.min(dur, (clientX - rect.left) / tlPxPerSec))
+  scrubTargetT = t
+  // Move the needle right away for a smooth, responsive feel.
+  if (ui.timelinePlayhead)
+    ui.timelinePlayhead.style.transform = `translate3d(${t * tlPxPerSec}px,0,0)`
+  if (ui.tlClock)
+    ui.tlClock.textContent = `${formatClock(t)} / ${formatClock(dur)}`
+  scheduleScrubSeek()
+}
+
+ui.timelineTrack?.addEventListener("pointerdown", (event) => {
+  // Subtitle blocks have their own drag/trim behaviour.
+  if (event.target.closest(".tl-block")) return
+  scrubbing = true
+  ui.timeline?.classList.add("is-scrubbing")
+  ui.timelineTrack.setPointerCapture?.(event.pointerId)
+  event.preventDefault()
+  scrubToClientX(event.clientX)
+})
+ui.timelineTrack?.addEventListener("pointermove", (event) => {
+  if (scrubbing) scrubToClientX(event.clientX)
+})
+function endScrub() {
+  if (!scrubbing) return
+  scrubbing = false
+  ui.timeline?.classList.remove("is-scrubbing")
+}
+ui.timelineTrack?.addEventListener("pointerup", endScrub)
+ui.timelineTrack?.addEventListener("pointercancel", endScrub)
 
 // Drag / trim blocks.
 ui.timelineBlocks?.addEventListener("pointerdown", (event) => {
@@ -1226,6 +1593,7 @@ ui.timelineBlocks?.addEventListener("pointerdown", (event) => {
     origStart: seg.start,
     origEnd: seg.end,
     moved: false,
+    before: snapshotSegments(),
   }
   block.setPointerCapture?.(event.pointerId)
   block.classList.add("is-dragging")
@@ -1265,15 +1633,19 @@ ui.timelineBlocks?.addEventListener("pointermove", (event) => {
 
 function endTimelineDrag() {
   if (!tlDrag) return
-  const { block, moved, seg } = tlDrag
+  const { block, moved, seg, index, before } = tlDrag
   block.classList.remove("is-dragging")
   tlDrag = null
+  if (moved) pushHistory(before)
   currentSegments().sort((a, b) => a.start - b.start)
   renderSegments()
   enableExports(true)
   if (!moved) {
-    // A simple click on the block seeks to its start.
+    // A simple click on the block selects it: seek there and mark the matching
+    // line in the sidebar (scrolling it into view).
     ui.video.currentTime = seg.start
+    const newIndex = currentSegments().indexOf(seg)
+    highlightSegment(newIndex >= 0 ? newIndex : index, { scrollSidebar: true })
   }
   updateCaption()
 }
@@ -1285,12 +1657,93 @@ ui.tlPlay?.addEventListener("click", () => {
   if (ui.video.paused) ui.video.play().catch(() => {})
   else ui.video.pause()
 })
-ui.video.addEventListener("play", () =>
-  ui.timeline?.classList.add("is-playing"),
-)
-ui.video.addEventListener("pause", () =>
-  ui.timeline?.classList.remove("is-playing"),
-)
+// Drive the playhead at the display refresh rate while playing. Reading
+// `video.currentTime` straight from the loop is jittery because the browser only
+// advances it in coarse steps, so we interpolate from a wall-clock anchor
+// (anchor time + elapsed real time × playbackRate) and gently re-anchor whenever
+// the real media time drifts from the prediction (seeks, stalls, end of file).
+let playheadRaf = 0
+let phAnchorMedia = 0
+let phAnchorWall = 0
+function reanchorPlayhead() {
+  phAnchorMedia = ui.video.currentTime || 0
+  phAnchorWall = performance.now()
+}
+function playheadLoop() {
+  const real = ui.video.currentTime || 0
+  const rate = ui.video.playbackRate || 1
+  let predicted = phAnchorMedia + ((performance.now() - phAnchorWall) / 1000) * rate
+  // Correct drift: the real clock jumped, stalled, or the prediction ran ahead.
+  if (Math.abs(real - predicted) > 0.18 || real < predicted - 0.03) {
+    reanchorPlayhead()
+    predicted = real
+  }
+  updateTimelinePlayhead(Math.min(predicted, tlTotalDuration()))
+  playheadRaf = requestAnimationFrame(playheadLoop)
+}
+ui.video.addEventListener("play", () => {
+  ui.timeline?.classList.add("is-playing")
+  cancelAnimationFrame(playheadRaf)
+  reanchorPlayhead()
+  playheadLoop()
+})
+ui.video.addEventListener("pause", () => {
+  ui.timeline?.classList.remove("is-playing")
+  cancelAnimationFrame(playheadRaf)
+  playheadRaf = 0
+  updateTimelinePlayhead()
+})
+// Keep the interpolation honest across seeks and speed changes.
+ui.video.addEventListener("seeked", reanchorPlayhead)
+ui.video.addEventListener("ratechange", reanchorPlayhead)
+
+// ── Custom video controls (native controls are off so subtitles render in
+// fullscreen too — we go fullscreen on the preview container, not the <video>). ──
+function togglePlay() {
+  if (ui.video.paused) ui.video.play().catch(() => {})
+  else ui.video.pause()
+}
+// Clicking the video itself toggles playback, like any player.
+ui.video.addEventListener("click", togglePlay)
+
+function syncVolumeUi() {
+  const muted = ui.video.muted || ui.video.volume === 0
+  ui.timeline?.classList.toggle("is-muted", muted)
+  if (ui.vpVolume) ui.vpVolume.value = String(muted ? 0 : ui.video.volume)
+}
+ui.vpMute?.addEventListener("click", () => {
+  ui.video.muted = !ui.video.muted
+  // Restore an audible level if the user unmutes from zero.
+  if (!ui.video.muted && ui.video.volume === 0) ui.video.volume = 1
+})
+ui.vpVolume?.addEventListener("input", () => {
+  const v = Number(ui.vpVolume.value)
+  ui.video.volume = v
+  ui.video.muted = v === 0
+})
+ui.video.addEventListener("volumechange", syncVolumeUi)
+
+function isFullscreen() {
+  const doc = document as any
+  return (
+    (doc.fullscreenElement || doc.webkitFullscreenElement) === ui.videoPreview
+  )
+}
+ui.vpFullscreen?.addEventListener("click", () => {
+  const doc = document as any
+  if (isFullscreen()) {
+    ;(doc.exitFullscreen || doc.webkitExitFullscreen)?.call(document)
+  } else {
+    const el = ui.videoPreview as any
+    ;(el?.requestFullscreen || el?.webkitRequestFullscreen)?.call(el)
+  }
+})
+function syncFullscreenUi() {
+  ui.timeline?.classList.toggle("is-fullscreen", isFullscreen())
+}
+document.addEventListener("fullscreenchange", syncFullscreenUi)
+document.addEventListener("webkitfullscreenchange", syncFullscreenUi)
+syncVolumeUi()
 ui.tlZoomIn?.addEventListener("click", () => {
   tlPxPerSec = Math.min(400, tlPxPerSec * 1.4)
   renderTimeline()
@@ -1304,13 +1757,52 @@ ui.video.addEventListener("loadedmetadata", () => {
   renderTimeline()
 })
 
+// Horizontally bring a subtitle block into view inside the timeline scroller.
+function scrollTimelineToBlock(index) {
+  const view = ui.timelineScroll
+  const seg = currentSegments()[index]
+  if (!view || !seg) return
+  const left = seg.start * tlPxPerSec
+  const right = Math.max(left + TL_MIN_DUR * tlPxPerSec, seg.end * tlPxPerSec)
+  if (
+    left < view.scrollLeft + 8 ||
+    right > view.scrollLeft + view.clientWidth - 8
+  ) {
+    view.scrollLeft = Math.max(0, left - view.clientWidth * 0.3)
+  }
+}
+
+// Mark a segment as active in BOTH the timeline and the sidebar so the two
+// panes always stay in sync. `touchSidebar` is skipped while editing a line so
+// playback doesn't yank the highlight off the line being edited.
+function highlightSegment(
+  index,
+  { scrollSidebar = false, scrollTimeline = false, touchSidebar = true } = {},
+) {
+  setTimelineActive(index)
+  if (touchSidebar) {
+    $$(".seg.is-active", ui.segList).forEach((el) =>
+      el.classList.remove("is-active"),
+    )
+    if (index >= 0) {
+      const li = $(`.seg[data-index="${index}"]`, ui.segList)
+      if (li) {
+        li.classList.add("is-active")
+        if (scrollSidebar) li.scrollIntoView({ block: "nearest" })
+      }
+    }
+  }
+  if (scrollTimeline && index >= 0) scrollTimelineToBlock(index)
+}
+
 // ── Caption overlay + active highlight ──
 function updateCaption() {
   updateTimelinePlayhead()
   const segments = currentSegments()
+  const editing = document.activeElement?.tagName === "TEXTAREA"
   if (!segments.length || !ui.video.duration) {
     ui.caption.textContent = ""
-    setTimelineActive(-1)
+    highlightSegment(-1, { touchSidebar: !editing })
     return
   }
   const current = ui.video.currentTime
@@ -1318,17 +1810,7 @@ function updateCaption() {
     (s) => current >= s.start && current <= s.end,
   )
   ui.caption.textContent = idx >= 0 ? segments[idx].text : ""
-  setTimelineActive(idx)
-  $$(".seg.is-active", ui.segList).forEach((el) =>
-    el.classList.remove("is-active"),
-  )
-  if (idx >= 0) {
-    const li = $(`.seg[data-index="${idx}"]`, ui.segList)
-    if (li && document.activeElement?.tagName !== "TEXTAREA") {
-      li.classList.add("is-active")
-      li.scrollIntoView({ block: "nearest" })
-    }
-  }
+  highlightSegment(idx, { touchSidebar: !editing, scrollSidebar: !editing })
 }
 
 // ── File handling ──
@@ -1356,6 +1838,7 @@ function handleSelectedFile(file) {
   renderSegments()
   ui.addSegBtn.disabled = true
   enableExports(false)
+  resetHistory()
 
   ui.outputLang.value = "same"
   ui.inputLang.value = ""
@@ -1363,7 +1846,6 @@ function handleSelectedFile(file) {
   const metaText = `${file.name} · ${prettifyBytes(file.size)}`
   ui.meta.textContent = metaText
   ui.configMeta.textContent = metaText
-  ui.detected.textContent = ""
   setStatus("Video loaded.", "ok")
   setProgress(0)
   ui.configProgress.hidden = true
@@ -1389,6 +1871,7 @@ function resetFlow() {
   ui.configVideo.removeAttribute("src")
   ui.configVideo.load()
   enableExports(false)
+  resetHistory()
   setStage("upload")
 }
 
@@ -1432,10 +1915,8 @@ function wrapText(ctx, text, maxWidth) {
   return lines
 }
 
-function drawFrame(ctx, video, w, h, segments) {
-  ctx.drawImage(video, 0, 0, w, h)
-  const current = video.currentTime
-  const seg = segments.find((s) => current >= s.start && current <= s.end)
+function drawSubtitlesAt(ctx, time, w, h, segments) {
+  const seg = segments.find((s) => time >= s.start && time <= s.end)
   if (!seg || !seg.text.trim()) return
 
   const c = captionStyle
@@ -1499,10 +1980,15 @@ function drawFrame(ctx, video, w, h, segments) {
   })
 }
 
+function drawFrame(ctx, video, w, h, segments) {
+  ctx.drawImage(video, 0, 0, w, h)
+  drawSubtitlesAt(ctx, video.currentTime, w, h, segments)
+}
+
 // ── Export progress modal ──
 const EXPORT_STEPS = [
-  { id: "prepare", label: "Preparing canvas and audio" },
-  { id: "render", label: "Recording video with subtitles" },
+  { id: "prepare", label: "Preparing the encoder" },
+  { id: "render", label: "Rendering video with subtitles" },
   { id: "encode", label: "Generating the file" },
   { id: "done", label: "Download ready" },
 ]
@@ -1552,10 +2038,162 @@ function failExport(message) {
   ui.exportClose.hidden = false
 }
 
-// ── Download video with burned-in subtitles (canvas + MediaRecorder) ──
+// ── Download video with burned-in subtitles ──
+// Modern path: WebCodecs via mediabunny (faster than real time, MP4 output,
+// no real-time playback needed). Fallback: canvas + MediaRecorder.
+function canUseWebCodecs() {
+  return (
+    typeof VideoEncoder !== "undefined" &&
+    typeof VideoDecoder !== "undefined" &&
+    typeof OffscreenCanvas !== "undefined"
+  )
+}
+
 async function downloadVideo() {
   const segments = currentSegments()
   if (!segments.length || exporting) return
+
+  exporting = true
+  ui.downloadVideoBtn.disabled = true
+  ui.downloadSrtBtn.disabled = true
+  ui.transcribeBtn.disabled = true
+  ui.backBtn.disabled = true
+
+  try {
+    if (canUseWebCodecs() && selectedVideoFile) {
+      const handled = await exportWithWebCodecs(segments)
+      if (handled) return
+    }
+    await exportWithRecorder(segments)
+  } finally {
+    exporting = false
+    ui.backBtn.disabled = false
+    ui.transcribeBtn.disabled = false
+    enableExports(true)
+  }
+}
+
+// ── WebCodecs export (mediabunny Conversion) ──
+// Returns true when the WebCodecs pipeline took ownership of the export
+// (whether it succeeded or surfaced an error to the user). Returns false when
+// the pipeline isn't viable and the caller should fall back to MediaRecorder.
+async function exportWithWebCodecs(segments) {
+  let mediabunny
+  try {
+    mediabunny = await import("mediabunny")
+  } catch (e) {
+    console.warn("[export] mediabunny failed to load, falling back", e)
+    return false
+  }
+
+  const {
+    Input,
+    Output,
+    Conversion,
+    BlobSource,
+    ALL_FORMATS,
+    Mp4OutputFormat,
+    BufferTarget,
+  } = mediabunny
+
+  openExportModal()
+  setExportStep("prepare", "active")
+  setExportStage("Preparing the encoder…", "busy")
+  ui.exportHint.textContent =
+    "Rendering the video with subtitles locally…"
+
+  const input = new Input({
+    source: new BlobSource(selectedVideoFile),
+    formats: ALL_FORMATS,
+  })
+  const output = new Output({
+    format: new Mp4OutputFormat(),
+    target: new BufferTarget(),
+  })
+
+  let canvas = null
+  let ctx = null
+
+  let conversion
+  try {
+    conversion = await Conversion.init({
+      input,
+      output,
+      video: {
+        codec: "avc",
+        // Draw each decoded frame plus its subtitle onto a canvas. mediabunny
+        // re-encodes the returned canvas while keeping the sample's timestamp.
+        process: (sample) => {
+          if (!ctx) {
+            canvas = new OffscreenCanvas(
+              sample.displayWidth,
+              sample.displayHeight,
+            )
+            ctx = canvas.getContext("2d")
+          }
+          sample.draw(ctx, 0, 0)
+          drawSubtitlesAt(ctx, sample.timestamp, canvas.width, canvas.height, segments)
+          return canvas
+        },
+      },
+    })
+  } catch (e) {
+    console.warn("[export] WebCodecs init failed, falling back", e)
+    return false
+  }
+
+  if (!conversion.isValid) {
+    console.warn(
+      "[export] WebCodecs conversion invalid, falling back",
+      conversion.discardedTracks,
+    )
+    return false
+  }
+
+  conversion.onProgress = (p) => {
+    // Reserve the last 5% for writing the file to disk.
+    setExportProgress(Math.min(95, p * 95))
+  }
+
+  setExportStep("prepare", "done")
+  setExportStep("render", "active")
+  setExportStage("Rendering video with subtitles…", "busy")
+
+  try {
+    await conversion.execute()
+  } catch (e) {
+    console.error(e)
+    failExport(
+      `WebCodecs export failed: ${e?.message || "unknown error"}. Try again.`,
+    )
+    return true
+  }
+
+  setExportStep("render", "done")
+  setExportStep("encode", "done")
+  setExportStep("done", "active")
+  setExportStage("Saving the file…", "busy")
+
+  const blob = new Blob([output.target.buffer], { type: "video/mp4" })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement("a")
+  link.href = url
+  link.download = `${baseFileName()}.${activeLang}.mp4`
+  link.click()
+  URL.revokeObjectURL(url)
+
+  setExportStep("done", "done")
+  setExportProgress(100)
+  setExportStage("Video exported! Check your downloads.", "ok")
+  ui.exportTitle.textContent = "Export complete"
+  ui.exportHint.hidden = true
+  ui.exportClose.hidden = false
+  setStatus("Video exported.", "ok")
+  return true
+}
+
+// ── Fallback export (canvas + MediaRecorder, plays in real time) ──
+async function exportWithRecorder(segments) {
   const video = ui.video
 
   openExportModal()
@@ -1571,12 +2209,6 @@ async function downloadVideo() {
     )
     return
   }
-
-  exporting = true
-  ui.downloadVideoBtn.disabled = true
-  ui.downloadSrtBtn.disabled = true
-  ui.transcribeBtn.disabled = true
-  ui.backBtn.disabled = true
 
   const w = video.videoWidth || 1280
   const h = video.videoHeight || 720
@@ -1611,10 +2243,6 @@ async function downloadVideo() {
     })
   } catch (e) {
     console.error(e)
-    exporting = false
-    ui.backBtn.disabled = false
-    ui.transcribeBtn.disabled = false
-    enableExports(true)
     failExport("Couldn't start the video recording.")
     return
   }
@@ -1701,10 +2329,6 @@ async function downloadVideo() {
     if (recorder.state !== "inactive") recorder.stop()
     video.muted = wasMuted
     video.volume = previousVolume
-    exporting = false
-    ui.backBtn.disabled = false
-    ui.transcribeBtn.disabled = false
-    enableExports(true)
     failExport(
       "The browser blocked the playback needed to record. Please try again.",
     )
@@ -1715,10 +2339,6 @@ async function downloadVideo() {
 
   video.muted = wasMuted
   video.volume = previousVolume
-  exporting = false
-  ui.backBtn.disabled = false
-  ui.transcribeBtn.disabled = false
-  enableExports(true)
 
   setExportStep("encode", "done")
   setExportStep("done", "done")
@@ -1803,8 +2423,11 @@ function applyCaptionStyle() {
     2.4 * c.size
   ).toFixed(2)}vw, ${Math.round(28 * c.size)}px)`
   ui.caption.style.padding = c.bgEnabled ? "0.22rem 0.6rem" : "0"
-  ui.caption.style.top = ""
-  ui.caption.style.bottom = ""
+  // Reset to "auto" (not "") so the stylesheet's `bottom: 8%` doesn't linger:
+  // having both top and bottom set would stretch the box and balloon the
+  // background when the caption sits at the top or middle.
+  ui.caption.style.top = "auto"
+  ui.caption.style.bottom = "auto"
   if (c.position === "middle") {
     ui.caption.style.top = "50%"
     ui.caption.style.transform = "translate(-50%, -50%)"
@@ -1952,6 +2575,8 @@ ui.input.addEventListener("change", (e) =>
 )
 ui.transcribeBtn.addEventListener("click", generate)
 ui.backBtn.addEventListener("click", backToConfig)
+ui.undoBtn?.addEventListener("click", undo)
+ui.redoBtn?.addEventListener("click", redo)
 ui.configBackBtn.addEventListener("click", resetFlow)
 ui.downloadSrtBtn.addEventListener("click", downloadSrt)
 ui.downloadVideoBtn.addEventListener("click", downloadVideo)
@@ -1959,9 +2584,51 @@ ui.exportClose.addEventListener("click", closeExportModal)
 ui.exportBackdrop.addEventListener("click", closeExportModal)
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && !ui.exportModal.hidden) closeExportModal()
+
+  // Undo / redo. Only when the editor is open and the export modal is closed.
+  // Inside text fields we defer to the browser's native text undo.
+  if (
+    (e.metaKey || e.ctrlKey) &&
+    !ui.stageEditor.hidden &&
+    ui.exportModal.hidden
+  ) {
+    const target = e.target
+    const inField =
+      target instanceof HTMLElement &&
+      (target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable)
+    const key = e.key.toLowerCase()
+    if (!inField && (key === "z" || key === "y")) {
+      const wantsRedo = key === "y" || (key === "z" && e.shiftKey)
+      e.preventDefault()
+      if (wantsRedo) redo()
+      else undo()
+      return
+    }
+  }
+
+  if (e.key === " " && !ui.stageEditor.hidden && ui.exportModal.hidden) {
+    const target = e.target
+    const isTyping =
+      target instanceof HTMLElement &&
+      (target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable)
+    if (!isTyping) {
+      e.preventDefault()
+      if (ui.video.paused) ui.video.play().catch(() => {})
+      else ui.video.pause()
+    }
+  }
 })
 ui.video.addEventListener("timeupdate", updateCaption)
 ui.video.addEventListener("seeked", updateCaption)
 ui.downloadsToggle.addEventListener("click", () => {
-  ui.downloadsPanel.hidden = !ui.downloadsPanel.hidden
+  const opening = ui.downloadsPanel.hidden
+  ui.downloadsPanel.hidden = !opening
+  // The panel header already shows the status, so drop the dock label while open.
+  ui.statusDock?.classList.toggle("panel-open", opening)
+  if (opening) refreshClearModelsUI()
 })
+ui.clearModelsBtn?.addEventListener("click", clearLocalModels)

@@ -1,5 +1,6 @@
 ---
 import Check from "../assets/svg/check.svg"
+import Ring from "../assets/svg/ring.svg"
 ---
 
 <div id="status-dock" class="status-dock">
@@ -10,11 +11,7 @@ import Check from "../assets/svg/check.svg"
     aria-label="Models status"
     type="button"
   >
-    <svg class="ring" viewBox="0 0 38 38" aria-hidden="true">
-      <circle class="ring-bg" cx="19" cy="19" r="15.5"></circle>
-      <circle id="downloads-ring" class="ring-fg" cx="19" cy="19" r="15.5"
-      ></circle>
-    </svg>
+    <Ring class="ring" />
     <span id="downloads-pct" class="ring-pct">0%</span>
     <Check class="ring-check" />
   </button>

@@ -75,6 +75,9 @@ body {
 .status-label:empty {
   display: none;
 }
+.status-dock.panel-open .status-label {
+  display: none;
+}
 .status-label[data-state="busy"] {
   color: #b8f060;
 }
@@ -225,6 +228,47 @@ body {
 .status-panel.is-error .panel-progress-fill {
   background: linear-gradient(90deg, #d14545, #f05858);
 }
+.panel-foot {
+  margin-top: 0.85rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+.clear-models-btn {
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  border-radius: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.025);
+  color: #9aa4ba;
+  font-size: 0.76rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  transition:
+    color 200ms ease,
+    border-color 200ms ease,
+    background 200ms ease;
+}
+.clear-models-btn:hover:not(:disabled) {
+  color: #f0a0a0;
+  border-color: rgba(240, 88, 88, 0.35);
+  background: rgba(240, 88, 88, 0.08);
+}
+.clear-models-btn.is-confirm {
+  color: #f05858;
+  border-color: rgba(240, 88, 88, 0.5);
+  background: rgba(240, 88, 88, 0.12);
+}
+.clear-models-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.clear-models-note {
+  margin: 0.55rem 0 0;
+  font-size: 0.7rem;
+  line-height: 1.4;
+  color: #7d8aa3;
+}
 .status-panel ul {
   list-style: none;
   margin: 0;
@@ -348,13 +392,6 @@ body {
 .item-downloading .item-pct {
   color: #b8f060;
 }
-.item-ready .item-pct {
-  color: #44d490;
-  font-size: 0.85rem;
-}
-.item-error .item-pct {
-  color: #f05858;
-}
 .dl-track {
   position: relative;
   height: 5px;
@@ -391,30 +428,16 @@ body {
   animation: indeterminate 1.1s ease-in-out infinite;
 }
 .item-foot {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 0.5rem;
+  display: block;
   font-size: 0.68rem;
-}
-.item-state {
-  color: #6b768f;
-  font-weight: 500;
-}
-.item-downloading .item-state {
-  color: #9fb56a;
-}
-.item-ready .item-state {
-  color: #4f9d78;
-}
-.item-error .item-state {
-  color: #d07171;
-}
-.item-meta {
   color: #788299;
   font-variant-numeric: tabular-nums;
-  text-align: right;
-  white-space: nowrap;
+}
+.item-downloading .item-foot {
+  color: #9fb56a;
+}
+.item-error .item-foot {
+  color: #d07171;
 }
 .panel-note {
   margin: 0.85rem 0 0;
@@ -432,6 +455,7 @@ body {
   justify-content: center;
   gap: 2.5rem;
   padding: 1.5rem 0;
+  position: relative;
   animation: rise 500ms ease both;
 }
 .hero {
@@ -510,6 +534,84 @@ body {
 .dz-hint {
   font-size: 0.8rem;
   color: #2e3548;
+}
+
+.upload-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem 1.75rem;
+  padding-top: 1.5rem;
+  font-size: 0.82rem;
+  color: #5a6479;
+}
+.stage-upload .upload-footer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding-top: 0;
+}
+.footer-credit {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: #6b7689;
+}
+.footer-link {
+  color: #aeb8cc;
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 180ms ease;
+}
+.footer-link:hover {
+  color: #eef1f6;
+}
+.footer-heart {
+  width: 15px;
+  height: 15px;
+  color: #ff8a8a;
+}
+.footer-repo {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: #6b7689;
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 180ms ease;
+}
+.footer-github {
+  width: 18px;
+  height: 18px;
+}
+.footer-repo:hover {
+  color: #eef1f6;
+}
+.footer-sponsor {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: #6b7689;
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 180ms ease;
+}
+.footer-sponsor-icon {
+  width: 15px;
+  height: 15px;
+  color: #b8f060;
+}
+.footer-sponsor:hover {
+  color: #eef1f6;
+}
+.footer-repo:focus-visible,
+.footer-link:focus-visible,
+.footer-sponsor:focus-visible {
+  outline: 2px solid #b8f060;
+  outline-offset: 3px;
+  border-radius: 6px;
 }
 
 /* ── Stage: config ── */
@@ -626,6 +728,16 @@ body {
   to {
     background-position: -220% 0;
   }
+}
+/* Indeterminate state for opaque steps (e.g. audio extraction): a stripe that
+   keeps moving on the compositor thread, so it never looks frozen even if the
+   main thread is momentarily busy. */
+.gen-fill.is-indeterminate {
+  width: 40% !important;
+  background: linear-gradient(90deg, transparent, #b8f060, transparent);
+  box-shadow: none;
+  transition: none;
+  animation: indeterminate 1.15s ease-in-out infinite;
 }
 .gen-error {
   margin: 0.85rem 0 0;
@@ -747,6 +859,14 @@ body {
   letter-spacing: -0.02em;
   flex-shrink: 0;
 }
+.export-dialog:has(.export-stage[data-kind="ok"]) .export-fill {
+  background: linear-gradient(90deg, #2fae74, #44d490);
+  box-shadow: 0 0 8px rgba(68, 212, 144, 0.5);
+  animation: none;
+}
+.export-dialog:has(.export-stage[data-kind="ok"]) .export-pct {
+  color: #44d490;
+}
 .export-hint {
   font-size: 0.74rem;
   line-height: 1.4;
@@ -799,13 +919,13 @@ body {
 .export-step[data-state="done"] .export-step-dot::after {
   content: "";
   position: absolute;
-  left: 4.6px;
-  top: 2px;
+  left: 50%;
+  top: 45%;
   width: 4px;
   height: 8px;
   border: solid #0e1117;
   border-width: 0 1.8px 1.8px 0;
-  transform: rotate(45deg);
+  transform: translate(-50%, -50%) rotate(45deg);
 }
 .export-error {
   margin: 1.1rem 0 0;
@@ -861,7 +981,7 @@ body {
   display: flex;
   align-items: center;
   gap: 1rem;
-  padding: 0.55rem 4rem 0.55rem 1rem;
+  padding: 0.55rem 1rem;
   border-bottom: 1px solid #141820;
   background: #080a0e;
 }
@@ -869,6 +989,42 @@ body {
   display: flex;
   gap: 0.45rem;
   margin-left: auto;
+}
+.editor-history {
+  display: flex;
+  gap: 0.35rem;
+}
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  background: #0e1118;
+  color: #c3cbdd;
+  border: 1px solid #1c2234;
+  border-radius: 8px;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    color 120ms ease;
+}
+.btn-icon svg {
+  width: 16px;
+  height: 16px;
+  color: #6a76a0;
+}
+.btn-icon:hover:not(:disabled) {
+  border-color: #b8f060;
+  color: #fff;
+}
+.btn-icon:hover:not(:disabled) svg {
+  color: #b8f060;
+}
+.btn-icon:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 .video-meta {
   font-size: 0.8rem;
@@ -1029,6 +1185,14 @@ video {
   text-align: center;
   text-wrap: balance;
   pointer-events: none;
+}
+
+/* ── Video fullscreen ── */
+.video-preview:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  border-radius: 0;
+  border: 0;
 }
 
 /* Subtitle styling bar */
@@ -1227,46 +1391,6 @@ video {
   cursor: not-allowed;
 }
 
-/* Status line */
-.status-line {
-  display: grid;
-  gap: 0.3rem;
-  padding: 0 0.1rem;
-}
-.status-meta {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 1rem;
-}
-.status-text {
-  font-size: 0.82rem;
-  color: #44d490;
-}
-.status-text[data-kind="busy"] {
-  color: #b8f060;
-}
-.status-text[data-kind="error"] {
-  color: #f05858;
-}
-.detected-lang {
-  font-size: 0.78rem;
-  color: #404858;
-}
-.progress-track {
-  height: 2px;
-  border-radius: 999px;
-  background: #141820;
-  overflow: hidden;
-}
-.progress-fill {
-  height: 100%;
-  width: 0%;
-  background: #b8f060;
-  border-radius: 999px;
-  transition: width 250ms ease;
-}
-
 /* Exports */
 .exports {
   display: flex;
@@ -1301,6 +1425,24 @@ video {
 .btn-soft:disabled {
   opacity: 0.35;
   cursor: not-allowed;
+}
+
+.btn-soft--primary {
+  background: #b8f060;
+  color: #0a0d12;
+  border-color: #b8f060;
+  font-weight: 600;
+}
+.btn-soft--primary svg {
+  color: #0a0d12;
+}
+.btn-soft--primary:hover:not(:disabled) {
+  background: #c6f57e;
+  border-color: #c6f57e;
+  color: #0a0d12;
+}
+.btn-soft--primary:hover:not(:disabled) svg {
+  color: #0a0d12;
 }
 
 /* Ghost button */
@@ -1534,8 +1676,57 @@ video {
   color: #8490a8;
   font-variant-numeric: tabular-nums;
 }
-.tl-zoom {
+.tl-tools {
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.tl-volume {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+/* The slider expands on hover so it stays compact otherwise. */
+.tl-volume-range {
+  width: 0;
+  opacity: 0;
+  height: 4px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: #b8f060;
+  transition:
+    width 160ms ease,
+    opacity 160ms ease;
+}
+.tl-volume:hover .tl-volume-range,
+.tl-volume:focus-within .tl-volume-range {
+  width: 72px;
+  opacity: 1;
+}
+.tl-icon-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid #1c2234;
+  background: #0e1118;
+  color: #8490a8;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    color 120ms ease;
+}
+.tl-icon-btn:hover {
+  border-color: #2e3a52;
+  color: #e2e6ee;
+}
+.tl-icon-btn svg {
+  width: 16px;
+  height: 16px;
+}
+.tl-zoom {
   display: flex;
   gap: 0.3rem;
 }
@@ -1556,6 +1747,21 @@ video {
 .tl-zoom-btn:hover {
   border-color: #2e3a52;
   color: #e2e6ee;
+}
+/* Icon swapping for the moved controls, driven by .timeline state classes. */
+#vp-mute .ic-mute,
+.timeline.is-muted #vp-mute .ic-vol {
+  display: none;
+}
+.timeline.is-muted #vp-mute .ic-mute {
+  display: block;
+}
+#vp-fullscreen .ic-fs-exit,
+.timeline.is-fullscreen #vp-fullscreen .ic-fs {
+  display: none;
+}
+.timeline.is-fullscreen #vp-fullscreen .ic-fs-exit {
+  display: block;
 }
 
 .timeline-scroll {
@@ -1580,7 +1786,12 @@ video {
   inset: 0 0 auto 0;
   height: 26px;
   border-bottom: 1px solid #11151d;
-  cursor: text;
+  cursor: ew-resize;
+}
+/* Keep the scrub cursor consistent while dragging the playhead anywhere. */
+.timeline.is-scrubbing,
+.timeline.is-scrubbing * {
+  cursor: ew-resize !important;
 }
 .tl-tick {
   position: absolute;

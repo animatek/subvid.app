@@ -1,6 +1,10 @@
 ---
 import Play from "../assets/svg/play.svg"
 import Pause from "../assets/svg/pause.svg"
+import Volume from "../assets/svg/volume.svg"
+import VolumeMute from "../assets/svg/volume-mute.svg"
+import Fullscreen from "../assets/svg/fullscreen.svg"
+import FullscreenExit from "../assets/svg/fullscreen-exit.svg"
 ---
 
 <div class="timeline" id="timeline">
@@ -15,19 +19,51 @@ import Pause from "../assets/svg/pause.svg"
       <Pause class="ic-pause" />
     </button>
     <span id="tl-clock" class="tl-clock">0:00.00 / 0:00.00</span>
-    <div class="tl-zoom">
+    <div class="tl-tools">
+      <div class="tl-volume">
+        <button
+          id="vp-mute"
+          class="tl-icon-btn"
+          type="button"
+          aria-label="Mute / unmute"
+        >
+          <Volume class="ic-vol" />
+          <VolumeMute class="ic-mute" />
+        </button>
+        <input
+          id="vp-volume"
+          class="tl-volume-range"
+          type="range"
+          min="0"
+          max="1"
+          step="0.05"
+          value="1"
+          aria-label="Volume"
+        />
+      </div>
       <button
-        id="tl-zoom-out"
-        class="tl-zoom-btn"
+        id="vp-fullscreen"
+        class="tl-icon-btn"
         type="button"
-        aria-label="Zoom out">−</button
+        aria-label="Toggle fullscreen"
       >
-      <button
-        id="tl-zoom-in"
-        class="tl-zoom-btn"
-        type="button"
-        aria-label="Zoom in">+</button
-      >
+        <Fullscreen class="ic-fs" />
+        <FullscreenExit class="ic-fs-exit" />
+      </button>
+      <div class="tl-zoom">
+        <button
+          id="tl-zoom-out"
+          class="tl-zoom-btn"
+          type="button"
+          aria-label="Zoom out">−</button
+        >
+        <button
+          id="tl-zoom-in"
+          class="tl-zoom-btn"
+          type="button"
+          aria-label="Zoom in">+</button
+        >
+      </div>
     </div>
   </div>
   <div class="timeline-scroll" id="timeline-scroll">
