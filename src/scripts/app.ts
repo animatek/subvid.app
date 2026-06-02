@@ -4,10 +4,25 @@ import { FFmpeg } from "@ffmpeg/ffmpeg"
 // worker — resolving its relative imports — and serve it same-origin.
 import ffmpegWorkerURL from "@ffmpeg/ffmpeg/worker?worker&url"
 import { fetchFile } from "@ffmpeg/util"
+import {
+  builtInBackendLabel,
+  hasBuiltInTranslationSupport,
+  resolveTranslationBackend,
+  translateCuesBuiltIn,
+} from "./builtInTranslate.ts"
 import { $, $$ } from "./dom.ts"
-
-const ASR_MODEL = "Xenova/whisper-base"
-const TRANSLATION_MODEL = "Xenova/nllb-200-distilled-600M"
+import { createDownloadsController } from "./downloads.ts"
+import { I18N, langName, tt } from "./i18n.ts"
+import { ASR_MODEL, LANGS, TRANSLATION_MODEL } from "./languages.ts"
+import {
+  buildSrt,
+  formatClock,
+  normalizeLanguageCode,
+  normalizeSegments,
+  parseClock,
+} from "./subtitles.ts"
+import { createTransformersClient } from "./transformersClient.ts"
+import { ui } from "./ui.ts"
 
 // ── Subtitle styling ──
 const FONT_STACKS = {
@@ -134,108 +149,9 @@ const captionStyle = {
 }
 let activePresetId = "default"
 
-const LANGS = {
-  en: { label: "English", nllb: "eng_Latn" },
-  es: { label: "Spanish", nllb: "spa_Latn" },
-  fr: { label: "French", nllb: "fra_Latn" },
-  de: { label: "German", nllb: "deu_Latn" },
-  pt: { label: "Portuguese", nllb: "por_Latn" },
-  it: { label: "Italian", nllb: "ita_Latn" },
-  nl: { label: "Dutch", nllb: "nld_Latn" },
-  ru: { label: "Russian", nllb: "rus_Cyrl" },
-  ja: { label: "Japanese", nllb: "jpn_Jpan" },
-  ko: { label: "Korean", nllb: "kor_Hang" },
-  zh: { label: "Chinese", nllb: "zho_Hans" },
-  ar: { label: "Arabic", nllb: "arb_Arab" },
-  hi: { label: "Hindi", nllb: "hin_Deva" },
-  pl: { label: "Polish", nllb: "pol_Latn" },
-  tr: { label: "Turkish", nllb: "tur_Latn" },
-}
-
-const ui = {
-  app: $("#app"),
-  stageUpload: $("#stage-upload"),
-  stageConfig: $("#stage-config"),
-  stageEditor: $("#stage-editor"),
-  dropzone: $("#dropzone"),
-  input: $<HTMLInputElement>("#video-input"),
-  video: $<HTMLVideoElement>("#video"),
-  configVideo: $<HTMLVideoElement>("#config-video"),
-  caption: $("#caption-overlay"),
-  videoPreview: $("#video-preview"),
-  vpMute: $("#vp-mute"),
-  vpVolume: $<HTMLInputElement>("#vp-volume"),
-  vpFullscreen: $("#vp-fullscreen"),
-  configProgress: $("#config-progress"),
-  configProgressFill: $("#config-progress-fill"),
-  configProgressPct: $("#config-progress-pct"),
-  configStatus: $("#config-status"),
-  configError: $("#config-error"),
-  meta: $("#video-meta"),
-  configMeta: $("#config-meta"),
-  inputLang: $<HTMLSelectElement>("#input-lang"),
-  outputLang: $<HTMLSelectElement>("#output-lang"),
-  configBackBtn: $("#config-back-btn"),
-  langTabs: $("#lang-tabs"),
-  langAddSelect: $<HTMLSelectElement>("#lang-add-select"),
-  langAddStatus: $("#lang-add-status"),
-  segList: $("#seg-list"),
-  segCount: $("#seg-count"),
-  addSegBtn: $<HTMLButtonElement>("#add-seg-btn"),
-  transcribeBtn: $<HTMLButtonElement>("#transcribe-btn"),
-  downloadVideoBtn: $<HTMLButtonElement>("#download-video-btn"),
-  downloadSrtBtn: $<HTMLButtonElement>("#download-srt-btn"),
-  backBtn: $("#back-btn"),
-  undoBtn: $<HTMLButtonElement>("#undo-btn"),
-  redoBtn: $<HTMLButtonElement>("#redo-btn"),
-  stylePresets: $("#style-presets"),
-  styleToggle: $("#style-toggle"),
-  styleControls: $("#style-controls"),
-  csFont: $<HTMLSelectElement>("#cs-font"),
-  csSize: $<HTMLInputElement>("#cs-size"),
-  csColor: $<HTMLInputElement>("#cs-color"),
-  csBold: $<HTMLInputElement>("#cs-bold"),
-  csOutline: $<HTMLInputElement>("#cs-outline"),
-  csBg: $<HTMLInputElement>("#cs-bg"),
-  csBgColor: $<HTMLInputElement>("#cs-bgcolor"),
-  csBgOpacity: $<HTMLInputElement>("#cs-bgopacity"),
-  csPosition: $("#cs-position"),
-  exportModal: $("#export-modal"),
-  exportBackdrop: $("#export-backdrop"),
-  exportClose: $("#export-close"),
-  exportTitle: $("#export-title"),
-  exportStage: $("#export-stage"),
-  exportFill: $("#export-fill"),
-  exportPct: $("#export-pct"),
-  exportHint: $("#export-hint"),
-  exportSteps: $("#export-steps"),
-  exportError: $("#export-error"),
-  downloadsToggle: $("#downloads-toggle"),
-  downloadsRing: $("#downloads-ring"),
-  downloadsPct: $("#downloads-pct"),
-  downloadsLabel: $("#downloads-label"),
-  downloadsSummary: $("#downloads-summary"),
-  downloadsOverall: $("#downloads-overall"),
-  downloadsPanel: $("#downloads-panel"),
-  downloadsList: $("#downloads-list"),
-  clearModelsBtn: $<HTMLButtonElement>("#clear-models-btn"),
-  clearModelsNote: $("#clear-models-note"),
-  statusDock: $("#status-dock"),
-  timeline: $("#timeline"),
-  timelineScroll: $("#timeline-scroll"),
-  timelineTrack: $("#timeline-track"),
-  timelineRuler: $("#timeline-ruler"),
-  timelineBlocks: $("#timeline-blocks"),
-  timelinePlayhead: $("#timeline-playhead"),
-  tlPlay: $("#tl-play"),
-  tlClock: $("#tl-clock"),
-  tlZoomIn: $("#tl-zoom-in"),
-  tlZoomOut: $("#tl-zoom-out"),
-}
-
 const downloads = {
   ffmpeg: {
-    label: "FFmpeg WASM core",
+    label: tt("downloads.ffmpeg"),
     state: "pending",
     progress: 0,
     loaded: 0,
@@ -243,7 +159,7 @@ const downloads = {
     speed: 0,
   },
   asr: {
-    label: "Whisper model",
+    label: tt("downloads.whisper"),
     state: "pending",
     progress: 0,
     loaded: 0,
@@ -251,13 +167,16 @@ const downloads = {
     speed: 0,
   },
   translation: {
-    label: "Translation model",
+    label: tt("downloads.translation"),
     state: "pending",
     progress: 0,
     loaded: 0,
     total: 0,
     speed: 0,
-    pendingNote: "Only if you translate",
+    pendingNote: hasBuiltInTranslationSupport()
+      ? tt("downloads.pendingNoteChrome")
+      : tt("downloads.pendingNote"),
+    readyNote: "",
   },
 }
 
@@ -275,6 +194,8 @@ let activeLang = ""
 let ffmpeg = null
 let asrReady = false
 let translationReady = false
+/** @type {'prompt' | 'nllb' | null} */
+let activeTranslationBackend = null
 let dragDepth = 0
 let exporting = false
 let onFfmpegProgress = null
@@ -282,44 +203,14 @@ let progressRaf = 0
 
 const hasWebGPU = typeof navigator !== "undefined" && "gpu" in navigator
 
-// ── transformers.js worker (keeps model loading + inference off the main
-// thread so the UI never freezes) ──
-const transformersWorker = new Worker(
-  new URL("./transcriber.worker.ts", import.meta.url),
-  { type: "module" },
-)
 const asrTracker = makeTransformersTracker("asr")
 const translationTracker = makeTransformersTracker("translation")
-let onAsrChunk = null
-let workerReqId = 0
-const workerPending = new Map()
-
-transformersWorker.onmessage = (event) => {
-  const { id, type } = event.data || {}
-  if (type === "progress") {
-    if (event.data.key === "asr") asrTracker(event.data.payload)
-    else if (event.data.key === "translation")
-      translationTracker(event.data.payload)
-    return
-  }
-  if (type === "chunk") {
-    if (typeof onAsrChunk === "function") onAsrChunk()
-    return
-  }
-  const pending = workerPending.get(id)
-  if (!pending) return
-  workerPending.delete(id)
-  if (type === "error") pending.reject(new Error(event.data.error))
-  else pending.resolve(event.data.result)
-}
-
-function callTransformersWorker(type, payload, transfer = []) {
-  const id = ++workerReqId
-  return new Promise((resolve, reject) => {
-    workerPending.set(id, { resolve, reject })
-    transformersWorker.postMessage({ id, type, payload }, transfer)
-  })
-}
+const transformersClient = createTransformersClient({
+  onProgress(key, payload) {
+    if (key === "asr") asrTracker(payload)
+    else if (key === "translation") translationTracker(payload)
+  },
+})
 
 const currentSegments = () => segmentsByLang[activeLang] || []
 
@@ -454,72 +345,6 @@ function prettifyBytes(bytes) {
   return `${value.toFixed(i === 0 ? 0 : 1)} ${units[i]}`
 }
 
-function formatSrtTime(seconds) {
-  const c = Math.max(0, Number.isFinite(seconds) ? seconds : 0)
-  const h = Math.floor(c / 3600)
-  const m = Math.floor((c % 3600) / 60)
-  const s = Math.floor(c % 60)
-  const ms = Math.floor((c - Math.floor(c)) * 1000)
-  const p = (n, l = 2) => String(n).padStart(l, "0")
-  return `${p(h)}:${p(m)}:${p(s)},${p(ms, 3)}`
-}
-
-function formatClock(seconds) {
-  const c = Math.max(0, Number.isFinite(seconds) ? seconds : 0)
-  const m = Math.floor(c / 60)
-  const s = Math.floor(c % 60)
-  const cs = Math.round((c - Math.floor(c)) * 100)
-  const p = (n) => String(n).padStart(2, "0")
-  return `${m}:${p(s)}.${p(cs)}`
-}
-
-function parseClock(value) {
-  const match = String(value)
-    .trim()
-    .match(/^(\d+):(\d{1,2})(?:[.,](\d{1,3}))?$/)
-  if (!match) return null
-  const m = Number(match[1])
-  const s = Number(match[2])
-  const frac = match[3] ? Number(`0.${match[3]}`) : 0
-  return m * 60 + s + frac
-}
-
-function normalizeSegments(output) {
-  if (!output || !Array.isArray(output.chunks)) {
-    const text = output?.text?.trim()
-    return text ? [{ start: 0, end: 6, text }] : []
-  }
-  return output.chunks
-    .map((chunk, index) => {
-      const range = Array.isArray(chunk.timestamp)
-        ? chunk.timestamp
-        : [index * 2, index * 2 + 2]
-      const start = Number.isFinite(range[0]) ? range[0] : index * 2
-      const end = Number.isFinite(range[1]) ? range[1] : start + 2
-      return {
-        start,
-        end: Math.max(start + 0.35, end),
-        text: (chunk.text || "").trim(),
-      }
-    })
-    .filter((s) => s.text.length > 0)
-}
-
-function buildSrt(segments) {
-  return segments
-    .map(
-      (s, i) =>
-        `${i + 1}\n${formatSrtTime(s.start)} --> ${formatSrtTime(s.end)}\n${s.text}`,
-    )
-    .join("\n\n")
-}
-
-function normalizeLanguageCode(code) {
-  if (!code) return ""
-  const short = String(code).toLowerCase().slice(0, 2)
-  return LANGS[short] ? short : ""
-}
-
 function outputTarget(sourceLang) {
   const value = ui.outputLang.value
   if (!value || value === "same") return sourceLang
@@ -546,7 +371,7 @@ function setStage(stage) {
 
 // ── Model download status ──
 const STATE_LABEL = {
-  error: "Download failed",
+  error: tt("downloads.downloadFailed"),
 }
 
 function trackSpeed(item, loaded) {
@@ -682,9 +507,11 @@ function renderDownloads() {
     const footText =
       item.state === "pending"
         ? item.pendingNote || ""
-        : item.state === "error"
-          ? STATE_LABEL.error
-          : meta
+        : item.state === "ready" && item.readyNote
+          ? item.readyNote
+          : item.state === "error"
+            ? STATE_LABEL.error
+            : meta
     const li = document.createElement("li")
     li.className = `item item-${item.state}`
     li.innerHTML = `
@@ -740,20 +567,20 @@ function renderDownloads() {
   ui.downloadsToggle.classList.toggle("is-busy", liveCount > 0 && !allReady)
 
   ui.downloadsSummary.textContent = allReady
-    ? "All ready"
+    ? tt("downloads.allReady")
     : hasError
-      ? "With errors"
+      ? tt("downloads.withErrors")
       : liveCount
-        ? `${liveCount} in progress`
+        ? tt("downloads.inProgress", { n: liveCount })
         : ""
 
   const labelText = allReady
-    ? "All ready"
+    ? tt("downloads.allReady")
     : hasError
-      ? "Download failed"
+      ? tt("downloads.downloadFailed")
       : liveCount
-        ? "Download in progress"
-        : "Preparing models"
+        ? tt("downloads.downloadInProgress")
+        : tt("downloads.preparingModels")
   ui.downloadsLabel.textContent = labelText
   ui.downloadsLabel.dataset.state = allReady
     ? "ready"
@@ -773,8 +600,8 @@ let cachedModelsBytes = 0
 
 function clearModelsLabel() {
   return cachedModelsBytes > 0
-    ? `Delete downloaded models (${prettifyBytes(cachedModelsBytes)})`
-    : "No downloaded models"
+    ? tt("downloads.clearWithSize", { size: prettifyBytes(cachedModelsBytes) })
+    : tt("downloads.clearNone")
 }
 
 // Sum the byte size of everything transformers.js has cached, so we can show
@@ -819,7 +646,9 @@ async function clearLocalModels() {
   if (btn.dataset.confirm !== "1") {
     btn.dataset.confirm = "1"
     btn.classList.add("is-confirm")
-    btn.textContent = `Delete ${prettifyBytes(cachedModelsBytes)}? Click to confirm`
+    btn.textContent = tt("downloads.clearConfirm", {
+      size: prettifyBytes(cachedModelsBytes),
+    })
     clearTimeout(clearConfirmTimer)
     clearConfirmTimer = window.setTimeout(() => {
       btn.dataset.confirm = ""
@@ -834,7 +663,7 @@ async function clearLocalModels() {
   btn.dataset.busy = "1"
   btn.classList.remove("is-confirm")
   btn.disabled = true
-  btn.textContent = "Deleting…"
+  btn.textContent = tt("downloads.deleting")
 
   const freed = cachedModelsBytes
   let deleted = false
@@ -860,8 +689,8 @@ async function clearLocalModels() {
   if (ui.clearModelsNote) {
     ui.clearModelsNote.hidden = false
     ui.clearModelsNote.textContent = deleted
-      ? `Freed ${prettifyBytes(freed)} · models re-download next visit.`
-      : "Couldn't access the model cache."
+      ? tt("downloads.freed", { size: prettifyBytes(freed) })
+      : tt("downloads.clearFailed")
   }
 }
 
@@ -933,7 +762,7 @@ async function ensureFfmpeg() {
 async function ensureRecognizer() {
   if (asrReady) return
   updateDownloadStatus("asr", "downloading")
-  await callTransformersWorker("ensure-asr", {
+  await transformersClient.call("ensure-asr", {
     model: ASR_MODEL,
     webgpu: hasWebGPU,
   })
@@ -941,14 +770,39 @@ async function ensureRecognizer() {
   updateDownloadStatus("asr", "ready")
 }
 
-async function ensureTranslator() {
-  if (translationReady) return
+function markTranslationBuiltIn(backend) {
+  activeTranslationBackend = backend
+  translationReady = true
+  const item = downloads.translation
+  item.readyNote = tt("downloads.translationBuiltin", {
+    engine: builtInBackendLabel(),
+  })
+  item.total = 0
+  item.loaded = 0
+  updateDownloadStatus("translation", "ready")
+}
+
+async function ensureNllbTranslator() {
+  if (translationReady && activeTranslationBackend === "nllb") return
+  activeTranslationBackend = "nllb"
   updateDownloadStatus("translation", "downloading")
-  await callTransformersWorker("ensure-translation", {
+  downloads.translation.readyNote = ""
+  await transformersClient.call("ensure-translation", {
     model: TRANSLATION_MODEL,
   })
   translationReady = true
   updateDownloadStatus("translation", "ready")
+}
+
+async function ensureTranslation(sourceLang, targetLang) {
+  const backend = await resolveTranslationBackend(sourceLang, targetLang)
+  if (backend !== "nllb") {
+    updateDownloadStatus("translation", "downloading")
+    downloads.translation.readyNote = ""
+    return backend
+  }
+  await ensureNllbTranslator()
+  return "nllb"
 }
 
 async function preloadAssetsInBackground() {
@@ -1030,11 +884,11 @@ async function extractAudioBuffer(file) {
   // An indeterminate CSS bar keeps animating on the compositor throughout, so
   // it never looks frozen — and no misleading percentage is shown.
   setIndeterminate(true)
-  setStatus("Step 1/5 · Loading FFmpeg…", "busy")
+  setStatus(tt("steps.loadingFfmpeg"), "busy")
   const worker = await ensureFfmpeg()
-  setStatus("Step 2/5 · Reading video file…", "busy")
+  setStatus(tt("steps.readingVideo"), "busy")
   await worker.writeFile(inputName, await fetchFile(file))
-  setStatus("Step 2/5 · Extracting audio track…", "busy")
+  setStatus(tt("steps.extractingAudio"), "busy")
   await worker.exec([
     "-i",
     inputName,
@@ -1049,7 +903,7 @@ async function extractAudioBuffer(file) {
   ])
 
   // Back to a real, determinate bar for the parts we can measure.
-  setStatus("Step 3/5 · Reading audio…", "busy")
+  setStatus(tt("steps.readingAudio"), "busy")
   setProgress(32)
   const outputData = await worker.readFile(outputName)
   await worker.deleteFile(inputName)
@@ -1061,7 +915,7 @@ async function extractAudioBuffer(file) {
       ? outputData
       : new Uint8Array(outputData as ArrayBuffer)
 
-  setStatus("Step 3/5 · Decoding audio…", "busy")
+  setStatus(tt("steps.decodingAudio"), "busy")
   // Parse the PCM WAV ourselves so the decode advances sample-by-sample
   // (34%→38%) instead of freezing on the opaque decodeAudioData call.
   let copied = await decodeWavPcm16(bytes, (ratio) => {
@@ -1085,27 +939,71 @@ async function extractAudioBuffer(file) {
 }
 
 // ── Translation ──
+// Chrome + en/es/ja: Gemini Nano (Prompt API). Everything else → NLLB in the worker.
 async function translateSegments(segments, sourceLang, targetLang) {
   if (!segments.length || sourceLang === targetLang)
     return segments.map((s) => ({ ...s }))
   if (!LANGS[sourceLang] || !LANGS[targetLang])
     return segments.map((s) => ({ ...s }))
-  setStatus(`Step 5/5 · Translating to ${LANGS[targetLang].label}…`, "busy")
-  await ensureTranslator()
+  setStatus(tt("steps.translatingTo", { lang: langName(targetLang) }), "busy")
+
+  const cues = segments.map((s) => ({
+    text: s.text,
+    start: s.start,
+    end: s.end,
+  }))
   const texts = segments.map((s) => s.text)
-  const translated = await callTransformersWorker("translate", {
-    texts,
-    src: LANGS[sourceLang].nllb,
-    tgt: LANGS[targetLang].nllb,
-  })
-  const normalized = Array.isArray(translated) ? translated : [translated]
+  const backend = await ensureTranslation(sourceLang, targetLang)
+
+  let translatedTexts
+  if (backend === "nllb") {
+    const translated = await transformersClient.call("translate", {
+      texts,
+      src: LANGS[sourceLang].nllb,
+      tgt: LANGS[targetLang].nllb,
+    })
+    const normalized = Array.isArray(translated) ? translated : [translated]
+    translatedTexts = segments.map((s, i) =>
+      (
+        normalized[i]?.translation_text ||
+        normalized[i]?.generated_text ||
+        s.text
+      ).trim(),
+    )
+  } else {
+    const onModelProgress = (ratio) => {
+      downloads.translation.progress = Math.round(ratio * 100)
+      renderDownloads()
+    }
+    try {
+      translatedTexts = await translateCuesBuiltIn(cues, sourceLang, targetLang, {
+        onProgress: onModelProgress,
+        sourceLabel: LANGS[sourceLang].label,
+        targetLabel: LANGS[targetLang].label,
+      })
+    } catch (err) {
+      console.warn("[translate] built-in failed, falling back to NLLB", err)
+      await ensureNllbTranslator()
+      const translated = await transformersClient.call("translate", {
+        texts,
+        src: LANGS[sourceLang].nllb,
+        tgt: LANGS[targetLang].nllb,
+      })
+      const normalized = Array.isArray(translated) ? translated : [translated]
+      translatedTexts = segments.map((s, i) =>
+        (
+          normalized[i]?.translation_text ||
+          normalized[i]?.generated_text ||
+          s.text
+        ).trim(),
+      )
+    }
+    markTranslationBuiltIn(backend)
+  }
+
   return segments.map((s, i) => ({
     ...s,
-    text: (
-      normalized[i]?.translation_text ||
-      normalized[i]?.generated_text ||
-      s.text
-    ).trim(),
+    text: (translatedTexts[i] || s.text).trim(),
   }))
 }
 
@@ -1118,11 +1016,11 @@ async function generate() {
   ui.configError.hidden = true
   ui.configError.textContent = ""
   ui.configProgress.hidden = false
-  setStatus("Preparing…", "busy")
+  setStatus(tt("steps.preparing"), "busy")
   setProgress(2)
   try {
     const audio = await extractAudioBuffer(selectedVideoFile)
-    setStatus("Step 4/5 · Loading speech model…", "busy")
+    setStatus(tt("steps.loadingSpeech"), "busy")
     // On the first run the Whisper model is downloaded; mirror that real
     // byte progress onto 38%→48%. When it's already cached the download is
     // instant, so fall back to a gentle creep for the (opaque) warm-up.
@@ -1160,7 +1058,7 @@ async function generate() {
     let perChunkMs = Math.max(2000, (audioSeconds / totalChunks) * 900)
 
     const transcribeStatus = () => {
-      setStatus("Step 4/5 · Transcribing…", "busy")
+      setStatus(tt("steps.transcribing"), "busy")
     }
 
     transcribeStatus()
@@ -1169,7 +1067,7 @@ async function generate() {
     startProgressCreep(TR_START, TR_START + chunkSpan, perChunkMs)
 
     // The worker streams a "chunk" message after each ~20s window it finishes.
-    onAsrChunk = () => {
+    transformersClient.setChunkHandler(() => {
       const now = performance.now()
       perChunkMs = Math.max(500, now - lastChunkAt)
       lastChunkAt = now
@@ -1181,23 +1079,23 @@ async function generate() {
       applyProgress(floor)
       if (chunksDone < totalChunks)
         startProgressCreep(floor, ceiling, perChunkMs)
-    }
+    })
 
     let output
     try {
       // Transfer the audio buffer so it's moved (not copied) to the worker.
-      output = await callTransformersWorker(
+      output = await transformersClient.call(
         "transcribe",
         { audio, language: ui.inputLang.value || null },
         [audio.buffer],
       )
     } finally {
-      onAsrChunk = null
+      transformersClient.setChunkHandler(null)
     }
     stopProgressCreep()
     setProgress(TR_END)
 
-    setStatus("Step 5/5 · Building subtitle lines…", "busy")
+    setStatus(tt("steps.buildingLines"), "busy")
     applyProgress(92)
     detectedLang =
       normalizeLanguageCode(output?.language) ||
@@ -1206,7 +1104,7 @@ async function generate() {
 
     baseSegments = normalizeSegments(output)
     if (!baseSegments.length)
-      throw new Error("No speech detected in the video.")
+      throw new Error(tt("noSpeech"))
 
     const target = outputTarget(detectedLang)
     const targets = [detectedLang]
@@ -1248,7 +1146,7 @@ async function generate() {
     resetHistory()
     setProgress(100)
     setStatus(
-      `Ready · ${baseSegments.length} lines · ${targets.length} language(s).`,
+      tt("ready", { n: baseSegments.length, count: targets.length }),
       "ok",
     )
     setStage("editor")
@@ -1256,7 +1154,7 @@ async function generate() {
     ui.configProgress.hidden = true
   } catch (error) {
     console.error(error)
-    const message = error?.message || "Error during generation."
+    const message = error?.message || tt("genError")
     setStatus(message, "error")
     setProgress(0)
     ui.configError.textContent = message
@@ -1275,19 +1173,17 @@ function enableExports(on) {
 
 // ── Rendering: language selects, tabs, segments ──
 function buildLangSelects() {
-  ui.inputLang.innerHTML =
-    '<option value="">Detect automatically</option>'
-  ui.outputLang.innerHTML =
-    '<option value="same">Same as audio</option>'
-  Object.entries(LANGS).forEach(([code, { label }]) => {
+  ui.inputLang.innerHTML = `<option value="">${tt("detectAuto")}</option>`
+  ui.outputLang.innerHTML = `<option value="same">${tt("sameAsAudio")}</option>`
+  Object.keys(LANGS).forEach((code) => {
     const inOpt = document.createElement("option")
     inOpt.value = code
-    inOpt.textContent = label
+    inOpt.textContent = langName(code)
     ui.inputLang.appendChild(inOpt)
 
     const outOpt = document.createElement("option")
     outOpt.value = code
-    outOpt.textContent = label
+    outOpt.textContent = langName(code)
     ui.outputLang.appendChild(outOpt)
   })
 }
@@ -1298,7 +1194,7 @@ function renderTabs() {
     const tab = document.createElement("button")
     tab.type = "button"
     tab.className = `tab${lang === activeLang ? " is-active" : ""}`
-    tab.textContent = LANGS[lang]?.label || lang
+    tab.textContent = langName(lang)
     tab.addEventListener("click", () => {
       if (activeLang === lang) return
       activeLang = lang
@@ -1320,11 +1216,11 @@ function populateAddLang() {
   const remaining = Object.entries(LANGS).filter(
     ([code]) => !orderedLangs.includes(code),
   )
-  ui.langAddSelect.innerHTML = '<option value="">+ Add language</option>'
-  remaining.forEach(([code, { label }]) => {
+  ui.langAddSelect.innerHTML = `<option value="">${tt("addLangOption")}</option>`
+  remaining.forEach(([code]) => {
     const opt = document.createElement("option")
     opt.value = code
-    opt.textContent = label
+    opt.textContent = langName(code)
     ui.langAddSelect.appendChild(opt)
   })
   ui.langAddSelect.value = ""
@@ -1350,7 +1246,7 @@ async function addLanguage(target) {
 
   translatingLang = target
   if (ui.langAddSelect) ui.langAddSelect.disabled = true
-  setLangAddStatus(`Translating to ${LANGS[target].label}…`, "busy")
+  setLangAddStatus(tt("translatingTo", { lang: langName(target) }), "busy")
   try {
     const translated = await translateSegments(sourceSegs, source, target)
     const before = snapshotSegments()
@@ -1365,7 +1261,7 @@ async function addLanguage(target) {
     updateCaption()
   } catch (error) {
     console.error(error)
-    setLangAddStatus("Translation failed.", "error")
+    setLangAddStatus(tt("translationFailed"), "error")
   } finally {
     translatingLang = ""
     populateAddLang()
@@ -1376,8 +1272,7 @@ function renderSegments() {
   const segments = currentSegments()
   ui.segList.innerHTML = ""
   if (!segments.length) {
-    ui.segList.innerHTML =
-      '<li class="seg-empty">Generate subtitles to edit them here.</li>'
+    ui.segList.innerHTML = `<li class="seg-empty">${tt("segEmpty")}</li>`
     ui.segCount.textContent = ""
     renderTimeline()
     return
@@ -1388,19 +1283,19 @@ function renderSegments() {
     li.dataset.index = String(index)
     li.innerHTML = `
       <div class="seg-row">
-        <button class="seg-play" type="button" title="Go to this moment" aria-label="Go">
+        <button class="seg-play" type="button" title="${tt("goTitle")}" aria-label="${tt("goAria")}">
           <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M3 2l5 3.5L3 9V2z" fill="currentColor"/></svg>
         </button>
-        <input class="t-input t-start" value="${formatClock(seg.start)}" aria-label="Start" />
+        <input class="t-input t-start" value="${formatClock(seg.start)}" aria-label="${tt("startAria")}" />
         <span class="t-sep">→</span>
-        <input class="t-input t-end" value="${formatClock(seg.end)}" aria-label="End" />
-        <button class="seg-del" type="button" title="Delete line" aria-label="Delete">✕</button>
+        <input class="t-input t-end" value="${formatClock(seg.end)}" aria-label="${tt("endAria")}" />
+        <button class="seg-del" type="button" title="${tt("delTitle")}" aria-label="${tt("delAria")}">✕</button>
       </div>
       <textarea class="seg-text" rows="2" spellcheck="false">${seg.text.replace(/</g, "&lt;")}</textarea>
     `
     ui.segList.appendChild(li)
   })
-  ui.segCount.textContent = `${segments.length} lines`
+  ui.segCount.textContent = tt("segCount", { n: segments.length })
   renderTimeline()
 }
 
@@ -1915,7 +1810,7 @@ function handleSelectedFile(file) {
   const metaText = `${file.name} · ${prettifyBytes(file.size)}`
   ui.meta.textContent = metaText
   ui.configMeta.textContent = metaText
-  setStatus("Video loaded.", "ok")
+  setStatus(tt("videoLoaded"), "ok")
   setProgress(0)
   ui.configProgress.hidden = true
   ui.configError.hidden = true
@@ -2059,10 +1954,10 @@ function drawFrame(ctx, video, w, h, segments) {
 
 // ── Export progress modal ──
 const EXPORT_STEPS = [
-  { id: "prepare", label: "Preparing the encoder" },
-  { id: "render", label: "Rendering video with subtitles" },
-  { id: "encode", label: "Generating the file" },
-  { id: "done", label: "Download ready" },
+  { id: "prepare", label: tt("exportSteps.prepare") },
+  { id: "render", label: tt("exportSteps.render") },
+  { id: "encode", label: tt("exportSteps.encode") },
+  { id: "done", label: tt("exportSteps.done") },
 ]
 
 function openExportModal() {
@@ -2073,10 +1968,10 @@ function openExportModal() {
   ui.exportError.hidden = true
   ui.exportError.textContent = ""
   ui.exportClose.hidden = true
-  ui.exportTitle.textContent = "Exporting video"
+  ui.exportTitle.textContent = tt("exportStages.exporting")
   ui.exportHint.hidden = false
   setExportStep("prepare", "active")
-  setExportStage("Preparing…", "busy")
+  setExportStage(tt("exportStages.preparing"), "busy")
   setExportProgress(0)
   ui.exportModal.hidden = false
 }
@@ -2103,7 +1998,7 @@ function setExportStep(id, state) {
 }
 
 function failExport(message) {
-  setExportStage("Export failed", "error")
+  setExportStage(tt("exportStages.failed"), "error")
   ui.exportError.textContent = message
   ui.exportError.hidden = false
   ui.exportHint.hidden = true
@@ -2170,9 +2065,8 @@ async function exportWithWebCodecs(segments) {
 
   openExportModal()
   setExportStep("prepare", "active")
-  setExportStage("Preparing the encoder…", "busy")
-  ui.exportHint.textContent =
-    "Rendering the video with subtitles locally…"
+  setExportStage(tt("exportStages.preparingEncoder"), "busy")
+  ui.exportHint.textContent = tt("exportStages.renderingLocally")
 
   const input = new Input({
     source: new BlobSource(selectedVideoFile),
@@ -2229,14 +2123,16 @@ async function exportWithWebCodecs(segments) {
 
   setExportStep("prepare", "done")
   setExportStep("render", "active")
-  setExportStage("Rendering video with subtitles…", "busy")
+  setExportStage(tt("exportStages.renderingVideo"), "busy")
 
   try {
     await conversion.execute()
   } catch (e) {
     console.error(e)
     failExport(
-      `WebCodecs export failed: ${e?.message || "unknown error"}. Try again.`,
+      tt("exportErrors.webcodecsFailed", {
+        error: e?.message || "unknown error",
+      }),
     )
     return true
   }
@@ -2244,7 +2140,7 @@ async function exportWithWebCodecs(segments) {
   setExportStep("render", "done")
   setExportStep("encode", "done")
   setExportStep("done", "active")
-  setExportStage("Saving the file…", "busy")
+  setExportStage(tt("exportStages.saving"), "busy")
 
   const blob = new Blob([output.target.buffer], { type: "video/mp4" })
   const url = URL.createObjectURL(blob)
@@ -2256,11 +2152,11 @@ async function exportWithWebCodecs(segments) {
 
   setExportStep("done", "done")
   setExportProgress(100)
-  setExportStage("Video exported! Check your downloads.", "ok")
-  ui.exportTitle.textContent = "Export complete"
+  setExportStage(tt("exportStages.exported"), "ok")
+  ui.exportTitle.textContent = tt("exportStages.complete")
   ui.exportHint.hidden = true
   ui.exportClose.hidden = false
-  setStatus("Video exported.", "ok")
+  setStatus(tt("videoExported"), "ok")
   return true
 }
 
@@ -2276,9 +2172,7 @@ async function exportWithRecorder(segments) {
       ? video.mozCaptureStream.bind(video)
       : null
   if (!capture || typeof MediaRecorder === "undefined") {
-    failExport(
-      "Your browser doesn't support client-side video export. Try desktop Chrome or Edge.",
-    )
+    failExport(tt("exportErrors.noSupport"))
     return
   }
 
@@ -2315,7 +2209,7 @@ async function exportWithRecorder(segments) {
     })
   } catch (e) {
     console.error(e)
-    failExport("Couldn't start the video recording.")
+    failExport(tt("exportErrors.recordStart"))
     return
   }
 
@@ -2328,7 +2222,7 @@ async function exportWithRecorder(segments) {
     recorder.onstop = () => {
       setExportStep("render", "done")
       setExportStep("encode", "active")
-      setExportStage("Generating the file…", "busy")
+      setExportStage(tt("exportStages.generatingFile"), "busy")
       const blob = new Blob(chunks, { type: "video/webm" })
       const url = URL.createObjectURL(blob)
       const link = document.createElement("a")
@@ -2345,7 +2239,7 @@ async function exportWithRecorder(segments) {
   video.muted = true
   video.volume = 0
 
-  setExportStage("Preparing the video…", "busy")
+  setExportStage(tt("exportStages.preparingVideo"), "busy")
   video.pause()
   try {
     video.currentTime = 0
@@ -2356,12 +2250,11 @@ async function exportWithRecorder(segments) {
   setExportStep("render", "active")
   setExportStage(
     hasAudio
-      ? "Recording video with subtitles…"
-      : "Recording video with subtitles (no audio)…",
+      ? tt("exportStages.recordingAudio")
+      : tt("exportStages.recordingNoAudio"),
     "busy",
   )
-  ui.exportHint.textContent =
-    "Keep this tab active: the video plays once to be recorded."
+  ui.exportHint.textContent = tt("exportStages.keepTabActive")
 
   let raf = 0
   let stopped = false
@@ -2401,9 +2294,7 @@ async function exportWithRecorder(segments) {
     if (recorder.state !== "inactive") recorder.stop()
     video.muted = wasMuted
     video.volume = previousVolume
-    failExport(
-      "The browser blocked the playback needed to record. Please try again.",
-    )
+    failExport(tt("exportErrors.playbackBlocked"))
     return
   }
 
@@ -2415,11 +2306,11 @@ async function exportWithRecorder(segments) {
   setExportStep("encode", "done")
   setExportStep("done", "done")
   setExportProgress(100)
-  setExportStage("Video exported! Check your downloads.", "ok")
-  ui.exportTitle.textContent = "Export complete"
+  setExportStage(tt("exportStages.exported"), "ok")
+  ui.exportTitle.textContent = tt("exportStages.complete")
   ui.exportHint.hidden = true
   ui.exportClose.hidden = false
-  setStatus("Video exported.", "ok")
+  setStatus(tt("videoExported"), "ok")
 }
 
 // ── Global drag & drop ──
@@ -2521,7 +2412,8 @@ function renderPresets() {
     btn.className = "preset" + (on ? " is-on" : "")
     btn.setAttribute("role", "tab")
     btn.setAttribute("aria-selected", on ? "true" : "false")
-    btn.title = p.name
+    const presetName = I18N.presets?.[p.id] || p.name
+    btn.title = presetName
 
     const prev = document.createElement("span")
     prev.className = "preset-prev"
@@ -2535,7 +2427,7 @@ function renderPresets() {
 
     const name = document.createElement("span")
     name.className = "preset-name"
-    name.textContent = p.name
+    name.textContent = presetName
 
     btn.append(prev, name)
     btn.addEventListener("click", () => applyPreset(p))
