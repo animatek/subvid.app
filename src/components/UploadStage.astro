@@ -32,6 +32,10 @@ const t = useTranslations(Astro.currentLocale)
     role="button"
     tabindex="0"
     aria-label={t.hero.dropAria}
+    data-default-label={t.hero.dropLabel}
+    data-default-hint={t.hero.dropHint}
+    data-unsupported-label={t.hero.dropUnsupportedLabel}
+    data-unsupported-hint={t.hero.dropUnsupportedHint}
   >
     <input id="video-input" type="file" accept="video/*" hidden />
     <span class="dz-spotlight" aria-hidden="true"></span>
@@ -41,8 +45,10 @@ const t = useTranslations(Astro.currentLocale)
         <span class="dz-pulse dz-pulse--2" aria-hidden="true"></span>
         <DropzoneIcon class="dz-icon" />
       </span>
-      <strong class="dz-label">{t.hero.dropLabel}</strong>
-      <span class="dz-hint">{t.hero.dropHint}</span>
+      <strong id="dropzone-label" class="dz-label">{t.hero.dropLabel}</strong>
+      <span id="dropzone-hint" class="dz-hint" aria-live="polite">
+        {t.hero.dropHint}
+      </span>
     </div>
   </div>
 

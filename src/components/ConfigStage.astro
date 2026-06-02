@@ -38,6 +38,14 @@ const t = useTranslations(Astro.currentLocale)
         </select>
       </label>
 
+      <label id="dual-track-field" class="option-field" hidden>
+        <input id="dual-track" type="checkbox" />
+        <span class="option-copy">
+          <strong>{t.config.dualTrack}</strong>
+          <small>{t.config.dualTrackHint}</small>
+        </span>
+      </label>
+
       <button id="transcribe-btn" class="btn-primary btn-block" type="button">
         {t.config.generate}
       </button>

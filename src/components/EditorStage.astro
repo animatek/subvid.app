@@ -62,7 +62,20 @@ const t = useTranslations(Astro.currentLocale)
     <div class="editor-main">
       <div class="video-preview" id="video-preview">
         <video id="video" playsinline></video>
-        <div id="caption-overlay" class="caption"></div>
+        <div id="caption-guides" class="caption-guides" hidden aria-hidden="true">
+          <span class="caption-guide caption-guide-v"></span>
+          <span class="caption-guide caption-guide-h caption-guide-h--top"></span>
+          <span class="caption-guide caption-guide-h caption-guide-h--middle"
+          ></span>
+          <span class="caption-guide caption-guide-h caption-guide-h--bottom"
+          ></span>
+        </div>
+        <div
+          id="caption-overlay"
+          class="caption-layer"
+          data-drag-label={t.style.dragAria}
+        >
+        </div>
       </div>
 
       <SubtitleStyleBar />
