@@ -7,7 +7,8 @@
 No uploads. No backend. No API keys.
 
 <a href="https://subvid.app">🌐 Live site</a> ·
-<a href="https://github.com/midudev/subvid.app">📦 Repository</a> ·
+<a href="https://github.com/midudev/subvid.app">📦 Original repository</a> ·
+<a href="https://github.com/animatek/subvid.app/tree/projects-persistence">🍴 Fork branch</a> ·
 <a href="#getting-started">🚀 Getting started</a>
 
 <br />
@@ -30,7 +31,8 @@ No uploads. No backend. No API keys.
 2. **Configure languages** — pick the audio language (or auto-detect) and the subtitle language.
 3. **Generate subtitles** — Whisper transcribes the audio; NLLB translates when needed.
 4. **Edit in the timeline** — fix text, timing, and styling with undo/redo.
-5. **Export** — download an `.srt` file or a new video with burned-in captions.
+5. **Save local projects** — reopen previous videos, tracks, subtitles, and export settings from your browser.
+6. **Export** — download an `.srt` file or a new video with burned-in captions, including vertical 9:16 clips.
 
 Everything runs client-side. Your video never leaves your device.
 
@@ -39,11 +41,22 @@ Everything runs client-side. Your video never leaves your device.
 - **AI transcription** — [Whisper](https://huggingface.co/Xenova/whisper-base) via [transformers.js](https://huggingface.co/docs/transformers.js), with optional WebGPU acceleration.
 - **AI translation** — [NLLB-200](https://huggingface.co/Xenova/nllb-200-distilled-600M) for multilingual subtitle tracks.
 - **Subtitle editor** — segment list, timeline scrubbing, multi-language tracks, caption presets (font, color, background, outline, position).
+- **Local project library** — saves videos, subtitles, selected languages, track states, and vertical export settings in IndexedDB.
 - **Export options**
   - `.srt` subtitle file
   - MP4 with hard-coded subtitles (WebCodecs + [mediabunny](https://github.com/Vanilagy/mediabunny) when available; canvas + MediaRecorder as fallback)
+  - Vertical 9:16 video export with screen/camera crop controls and subtitle positioning
 - **Internationalization** — English (default) and Spanish, with static pages per locale.
 - **Offline-friendly models** — AI weights are downloaded once and cached in the browser (IndexedDB).
+
+## Changes in this fork
+
+This branch adds local project persistence and vertical-video export tools on top of the original app:
+
+- **Persistent browser projects** — completed work is auto-saved locally so projects can be opened or deleted later.
+- **Restored editing state** — saved projects keep the original video file, generated subtitles, language tracks, locked/hidden track states, fixed titles, and export preferences.
+- **Vertical stream export** — adds a 9:16 preview/export workflow with adjustable screen crop, camera crop, subtitle size, and subtitle vertical position.
+- **Local MP4 transcode endpoint** — the dev server can convert exported vertical WebM files to H.264 MP4 with `ffmpeg` when available locally.
 
 ## Tech stack
 
@@ -55,6 +68,8 @@ Everything runs client-side. Your video never leaves your device.
 | Translation | transformers.js (NLLB-200) |
 | Audio extraction | [@ffmpeg/ffmpeg](https://ffmpegwasm.netlify.app) (WASM) |
 | Video export | [mediabunny](https://www.npmjs.com/package/mediabunny) + WebCodecs |
+| Local storage | IndexedDB for saved projects and cached browser data |
+| Local transcoding | Node.js API route + system `ffmpeg` for local MP4 conversion |
 | Deployment | [Cloudflare Workers](https://workers.cloudflare.com) (static assets) |
 
 ## Requirements
@@ -97,9 +112,10 @@ src/
 ├── components/       # Astro UI (upload, config, editor, export modal, …)
 ├── i18n/ui.ts        # Translations (en, es) — server + client strings
 ├── layouts/          # HTML shell, hreflang, meta tags
-├── pages/            # Routes: / (en), /es/ (es)
+├── pages/            # Routes: / (en), /es/ (es), local API routes
 ├── scripts/
 │   ├── app.ts        # Main client logic (state, transcription, export)
+│   ├── projectStorage.ts  # IndexedDB project persistence
 │   ├── transcriber.worker.ts  # Web Worker for AI models
 │   └── dom.ts        # DOM helpers
 └── styles/           # Global and app-specific CSS
@@ -113,6 +129,8 @@ The app is a multi-stage SPA embedded in static Astro pages. Server-rendered cop
 - **Transcriber worker** — loads Whisper/NLLB and runs inference off the main thread so the UI stays responsive.
 - **FFmpeg worker** — extracts audio from the uploaded video before transcription.
 - **Model downloads** — fetched from Hugging Face on first use (~150 MB for Whisper base + translation model). Progress is shown in the status dock; models can be cleared from the downloads panel.
+- **Project persistence** — stores saved projects in the browser with IndexedDB; no project data is uploaded.
+- **Local MP4 transcoding** — `/api/transcode-mp4` is only intended for the local Node dev server and requires a system `ffmpeg` binary.
 
 ### Browser capabilities
 
