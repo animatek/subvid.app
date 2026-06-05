@@ -38,9 +38,14 @@ export function createEditorStageController({
   function enableExports(on: boolean) {
     const ready = on && currentSegments().length > 0
     ui.downloadSrtBtn.disabled = !ready
+    ui.importSrtBtn.disabled = !on
     ui.downloadVideoBtn.disabled = !ready
     ui.exportFormat.disabled = !ready
     ui.exportQuality.disabled = !ready
+    ui.exportLayout.disabled = !ready
+    ui.cameraCropBtn.disabled = !ready
+    ui.screenCropBtn.disabled = !ready
+    ui.verticalPreviewBtn.disabled = !ready
   }
 
   function backToConfig() {

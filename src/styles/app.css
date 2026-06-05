@@ -661,6 +661,104 @@ body {
   animation: word-rise 0.75s cubic-bezier(0.2, 0.8, 0.2, 1) 0.42s forwards;
 }
 
+.projects-panel {
+  position: relative;
+  z-index: 1;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent),
+    rgba(10, 13, 18, 0.82);
+  padding: 1rem;
+  box-shadow: 0 22px 55px -36px rgba(0, 0, 0, 0.9);
+  opacity: 0;
+  animation: word-rise 0.75s cubic-bezier(0.2, 0.8, 0.2, 1) 0.48s forwards;
+}
+.projects-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.85rem;
+}
+.projects-kicker {
+  margin: 0 0 0.16rem;
+  font-size: 0.68rem;
+  font-weight: 650;
+  color: #b8f060;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.projects-head h2 {
+  margin: 0;
+  font-size: 1rem;
+  color: #eef1f6;
+  letter-spacing: -0.02em;
+}
+.projects-local {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 0.24rem 0.55rem;
+  background: rgba(184, 240, 96, 0.08);
+  color: #97a779;
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+.projects-empty {
+  margin: 0;
+  color: #68748b;
+  font-size: 0.82rem;
+}
+.projects-list {
+  display: grid;
+  gap: 0.65rem;
+}
+.project-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.035);
+  padding: 0.8rem;
+}
+.project-card h3 {
+  margin: 0 0 0.2rem;
+  font-size: 0.95rem;
+  color: #eef1f6;
+  font-weight: 650;
+}
+.project-card p,
+.project-card span {
+  display: block;
+  margin: 0;
+  color: #7f8aa2;
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+.project-card-actions {
+  display: flex;
+  gap: 0.45rem;
+}
+.project-card-actions button {
+  border: 0;
+  border-radius: 999px;
+  padding: 0.46rem 0.7rem;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+.project-open {
+  color: #061008;
+  background: #b8f060;
+}
+.project-delete {
+  color: #aeb8cc;
+  background: rgba(255, 255, 255, 0.07);
+}
+
 .dropzone {
   position: relative;
   isolation: isolate;
@@ -1354,6 +1452,17 @@ body {
   padding-block: 0.3rem;
   font-size: 0.78rem;
 }
+.btn-soft--crop {
+  align-self: end;
+  min-height: 31px;
+  padding-inline: 0.72rem;
+  color: #061008;
+  background: #b8f060;
+  border-color: rgba(184, 240, 96, 0.5);
+}
+.fixed-title-text {
+  width: min(260px, 30vw);
+}
 .editor-history {
   display: flex;
   gap: 0.35rem;
@@ -1540,6 +1649,133 @@ video {
   height: 100%;
   display: block;
   object-fit: contain;
+}
+.camera-crop-overlay {
+  position: absolute;
+  z-index: 5;
+  background:
+    linear-gradient(rgba(184, 240, 96, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(184, 240, 96, 0.08) 1px, transparent 1px),
+    rgba(0, 0, 0, 0.22);
+  background-size: 44px 44px;
+}
+.camera-crop-box {
+  position: absolute;
+  box-sizing: border-box;
+  min-width: 56px;
+  min-height: 56px;
+  border: 2px solid #b8f060;
+  background: rgba(184, 240, 96, 0.08);
+  box-shadow:
+    0 0 0 9999px rgba(0, 0, 0, 0.28),
+    0 0 28px rgba(184, 240, 96, 0.35);
+  cursor: move;
+  touch-action: none;
+}
+.camera-crop-box.is-screen {
+  border-color: #60a5fa;
+  background: rgba(96, 165, 250, 0.1);
+  box-shadow:
+    0 0 0 9999px rgba(0, 0, 0, 0.28),
+    0 0 28px rgba(96, 165, 250, 0.35);
+}
+.camera-crop-box.is-screen .camera-crop-label,
+.camera-crop-box.is-screen .camera-crop-handle {
+  background: #60a5fa;
+}
+.camera-crop-box:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 3px;
+}
+.camera-crop-label {
+  position: absolute;
+  left: 0.45rem;
+  top: 0.45rem;
+  border-radius: 999px;
+  padding: 0.2rem 0.48rem;
+  background: #b8f060;
+  color: #061008;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.camera-crop-handle {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 24px;
+  height: 24px;
+  border-radius: 10px 0 0;
+  background: #b8f060;
+  cursor: nwse-resize;
+}
+.camera-crop-handle::before {
+  content: "";
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 9px;
+  height: 9px;
+  border-right: 2px solid #061008;
+  border-bottom: 2px solid #061008;
+}
+.camera-crop-set {
+  position: absolute;
+  right: 0.75rem;
+  bottom: 0.75rem;
+  z-index: 2;
+  border: 0;
+  border-radius: 999px;
+  padding: 0.55rem 0.85rem;
+  background: #b8f060;
+  color: #061008;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+}
+.vertical-preview-panel {
+  position: absolute;
+  right: 1rem;
+  top: 1rem;
+  z-index: 6;
+  width: 302px;
+  border: 1px solid rgba(184, 240, 96, 0.26);
+  border-radius: 18px;
+  background: rgba(8, 10, 14, 0.92);
+  padding: 0.75rem;
+  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.55);
+}
+.vertical-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  margin-bottom: 0.6rem;
+  color: #e8ecf3;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.vertical-preview-head button {
+  border: 0;
+  border-radius: 999px;
+  padding: 0.28rem 0.55rem;
+  background: rgba(255, 255, 255, 0.08);
+  color: #c3cbdd;
+  font: inherit;
+  font-size: 0.68rem;
+  cursor: pointer;
+}
+.vertical-preview-panel canvas {
+  display: block;
+  width: 270px;
+  height: 480px;
+  border-radius: 12px;
+  background: #05070a;
 }
 .caption-layer {
   position: absolute;
@@ -1862,6 +2098,9 @@ video {
 .sc-group--background {
   flex: 1.2 1 360px;
 }
+.sc-group--vertical {
+  flex: 1 1 100%;
+}
 .sc-field {
   display: grid;
   gap: 0.3rem;
@@ -1901,6 +2140,19 @@ video {
   min-width: 145px;
   padding: 0.34rem 1.8rem 0.34rem 0.55rem;
   font-size: 0.8rem;
+}
+.sc-field input[type="text"] {
+  min-width: 220px;
+  padding: 0.42rem 0.55rem;
+  border: 1px solid #1c2234;
+  border-radius: 9px;
+  background: #0e1118;
+  color: #e8ecf3;
+  font: inherit;
+  font-size: 0.8rem;
+}
+.sc-field input[type="text"]::placeholder {
+  color: #4a546a;
 }
 .sc-field input[type="range"] {
   width: 132px;
@@ -2897,6 +3149,7 @@ video {
   .hero-mark,
   .hero-mark-text,
   .hero-sub,
+  .projects-panel,
   .dropzone,
   .dz-icon-wrap,
   .dz-pulse {
@@ -2906,6 +3159,7 @@ video {
   .hero-word,
   .hero-mark,
   .hero-sub,
+  .projects-panel,
   .dropzone {
     opacity: 1 !important;
     transform: none !important;

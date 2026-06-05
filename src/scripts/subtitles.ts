@@ -56,6 +56,41 @@ export function parseClock(value: string): number | null {
   return m * 60 + s + frac
 }
 
+function parseSrtTime(value: string): number | null {
+  const match = String(value)
+    .trim()
+    .match(/^(\d+):(\d{1,2}):(\d{1,2})[,.](\d{1,3})$/)
+  if (!match) return null
+  const h = Number(match[1])
+  const m = Number(match[2])
+  const s = Number(match[3])
+  const ms = Number(match[4].padEnd(3, "0"))
+  return h * 3600 + m * 60 + s + ms / 1000
+}
+
+export function parseSrt(input: string): SubtitleSegment[] {
+  return String(input)
+    .replace(/\r/g, "")
+    .split(/\n{2,}/)
+    .map((block) => {
+      const lines = block
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+      if (!lines.length) return null
+      if (/^\d+$/.test(lines[0])) lines.shift()
+      const timing = lines.shift() || ""
+      const [rawStart, rawEnd] = timing.split(/\s*-->\s*/)
+      const start = parseSrtTime(rawStart)
+      const end = parseSrtTime(rawEnd)
+      const text = lines.join("\n").trim()
+      if (start == null || end == null || end <= start || !text) return null
+      return { start, end, text }
+    })
+    .filter((segment): segment is SubtitleSegment => !!segment)
+    .sort((a, b) => a.start - b.start)
+}
+
 function percentile(values: number[], ratio: number) {
   if (!values.length) return 0
   const index = Math.max(

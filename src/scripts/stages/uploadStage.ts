@@ -20,6 +20,7 @@ type UploadStageOptions = {
   resetHistory: () => void
   startEarlyTranscription: (file: File) => void
   resetTranscriptionCache: () => void
+  onVideoSelected?: (file: File) => void
 }
 
 function isVideoFile(file: File) {
@@ -47,6 +48,7 @@ export function createUploadStageController({
   resetHistory,
   startEarlyTranscription,
   resetTranscriptionCache,
+  onVideoSelected,
 }: UploadStageOptions) {
   let dragDepth = 0
   let unsupportedTimer: number | undefined
@@ -168,6 +170,7 @@ export function createUploadStageController({
     ui.configError.hidden = true
     ui.configError.textContent = ""
     setStage("config")
+    onVideoSelected?.(file)
     startEarlyTranscription(file)
   }
 

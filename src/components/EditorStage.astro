@@ -42,6 +42,11 @@ const t = useTranslations(Astro.currentLocale)
     <div id="video-meta" class="video-meta"></div>
     <span id="generation-time" class="generation-time" hidden></span>
     <div class="editor-actions">
+      <button id="import-srt-btn" class="btn-soft" type="button" disabled>
+        <Download />
+        {t.editor.importSrt}
+      </button>
+      <input id="import-srt-input" type="file" accept=".srt,text/plain" hidden />
       <button id="download-srt-btn" class="btn-soft" type="button" disabled>
         <Download />
         {t.editor.downloadSrt}
@@ -62,6 +67,22 @@ const t = useTranslations(Astro.currentLocale)
             <option value="lossless">{t.editor.qualityLossless}</option>
           </select>
         </label>
+        <label class="export-field" for="export-layout">
+          <span>{t.editor.videoLayout}</span>
+          <select id="export-layout" name="export-layout">
+            <option value="original">{t.editor.layoutOriginal}</option>
+            <option value="vertical-stream">{t.editor.layoutVerticalStream}</option>
+          </select>
+        </label>
+        <button id="camera-crop-btn" class="btn-soft btn-soft--crop" type="button">
+          {t.editor.defineCamera}
+        </button>
+        <button id="screen-crop-btn" class="btn-soft btn-soft--crop" type="button">
+          {t.editor.defineScreen}
+        </button>
+        <button id="vertical-preview-btn" class="btn-soft btn-soft--crop" type="button">
+          {t.editor.verticalPreview}
+        </button>
       </div>
       <button
         id="download-video-btn"
@@ -80,6 +101,22 @@ const t = useTranslations(Astro.currentLocale)
     <div class="editor-main">
       <div class="video-preview" id="video-preview">
         <video id="video" playsinline></video>
+        <div id="camera-crop-overlay" class="camera-crop-overlay" hidden>
+          <div id="camera-crop-box" class="camera-crop-box" tabindex="0">
+            <span class="camera-crop-label">{t.editor.cameraCrop}</span>
+            <span class="camera-crop-handle" aria-hidden="true"></span>
+          </div>
+          <button id="camera-crop-set-btn" class="camera-crop-set" type="button">
+            {t.editor.setCrop}
+          </button>
+        </div>
+        <div id="vertical-preview-panel" class="vertical-preview-panel" hidden>
+          <div class="vertical-preview-head">
+            <span>{t.editor.verticalPreview}</span>
+            <button id="vertical-preview-close" type="button">{t.export.close}</button>
+          </div>
+          <canvas id="vertical-preview-canvas" width="270" height="480"></canvas>
+        </div>
         <div id="caption-guides" class="caption-guides" hidden aria-hidden="true">
           <span class="caption-guide caption-guide-v"></span>
           <span class="caption-guide caption-guide-h caption-guide-h--top"></span>

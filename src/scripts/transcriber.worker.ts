@@ -21,21 +21,47 @@ let recognizer: any = null
 const post = (msg: any, transfer: Transferable[] = []) =>
   (self as any).postMessage(msg, transfer)
 
+const progressCallback = (p: any) =>
+  post({ type: "progress", key: "asr", payload: p })
+
+async function createRecognizer(model: string, preferWebGPU: boolean) {
+  const baseOptions = { progress_callback: progressCallback }
+  const attempts: any[] = []
+
+  if (preferWebGPU) {
+    attempts.push({ ...baseOptions, device: "webgpu", dtype: "fp32" })
+  }
+
+  // Prefer the full-precision WASM model as the stable fallback. Some browser
+  // ONNX Runtime/WebGPU combinations fail to load Whisper's quantized decoder
+  // with: "TransposeDQWeightsForMatMulNBits Missing required scale".
+  attempts.push({ ...baseOptions, device: "wasm", dtype: "fp32" })
+
+  let lastError: unknown
+  for (const options of attempts) {
+    try {
+      console.info(
+        `[asr] loading Whisper on ${options.device} (${options.dtype})`,
+      )
+      return await pipeline("automatic-speech-recognition", model, options)
+    } catch (error) {
+      console.warn(
+        `[asr] failed loading Whisper on ${options.device} (${options.dtype})`,
+        error,
+      )
+      lastError = error
+    }
+  }
+
+  throw lastError
+}
+
 self.onmessage = async (event: MessageEvent) => {
   const { id, type, payload } = event.data || {}
   try {
     if (type === "ensure-asr") {
       if (!recognizer) {
-        const options: any = {
-          progress_callback: (p: any) =>
-            post({ type: "progress", key: "asr", payload: p }),
-        }
-        if (payload?.webgpu) options.device = "webgpu"
-        recognizer = await pipeline(
-          "automatic-speech-recognition",
-          payload.model,
-          options,
-        )
+        recognizer = await createRecognizer(payload.model, !!payload?.webgpu)
       }
       post({ id, type: "done" })
     } else if (type === "transcribe") {

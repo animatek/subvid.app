@@ -7,6 +7,12 @@ import { estimatedWordsForSegment } from "@/scripts/subtitles.ts"
 
 const CAPTION_MAX_WIDTH_RATIO = 0.8
 
+type SubtitleDrawOptions = {
+  fontScale?: number
+  yPercent?: number
+  maxWidthRatio?: number
+}
+
 function splitTextToFit(
   ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
   text: string,
@@ -144,12 +150,13 @@ function drawSubtitleBox(
   time: number,
   w: number,
   h: number,
+  options: SubtitleDrawOptions = {},
 ) {
   const text = String(seg?.text || "")
   if (!text.trim()) return
 
   const c = captionStyleForTrack(role, lang)
-  const fontSize = Math.round(h * 0.052 * c.size)
+  const fontSize = Math.round(h * 0.052 * c.size * (options.fontScale ?? 1))
   ctx.font = `${c.italic ? "italic " : ""}${c.weight} ${fontSize}px ${
     FONT_STACKS[c.font] || FONT_STACKS.sans
   }`
@@ -161,7 +168,7 @@ function drawSubtitleBox(
   const lineHeight = fontSize * 1.28
   const padX = fontSize * 0.5
   const padY = fontSize * 0.3
-  const maxBlockW = w * CAPTION_MAX_WIDTH_RATIO
+  const maxBlockW = w * (options.maxWidthRatio ?? CAPTION_MAX_WIDTH_RATIO)
   const maxTextW = Math.max(fontSize, maxBlockW - padX * 2)
   const wordLines = wordHighlight
     ? wrapWords(ctx, estimatedWordsForSegment(seg), maxTextW)
@@ -181,7 +188,9 @@ function drawSubtitleBox(
   const blockW = Math.min(maxBlockW, widestLine + padX * 2)
   let x = w / 2
   let y: number
-  if (c.position === "custom") {
+  if (typeof options.yPercent === "number") {
+    y = h * (Math.max(0, Math.min(100, options.yPercent)) / 100) - blockH / 2 + fontSize
+  } else if (c.position === "custom") {
     x = w * (Math.max(0, Math.min(100, Number(c.customX) || 50)) / 100)
     y =
       h * (Math.max(0, Math.min(100, Number(c.customY) || 50)) / 100) -
@@ -314,11 +323,12 @@ export function drawSubtitlesAt(
   w: number,
   h: number,
   segments: any[],
+  options: SubtitleDrawOptions = {},
 ) {
   renderTracks(segments).forEach((track) => {
     const seg = track.segments.find((s: any) => time >= s.start && time <= s.end)
     if (!seg?.text?.trim()) return
-    drawSubtitleBox(ctx, seg, track.role || "default", track.lang || "", time, w, h)
+    drawSubtitleBox(ctx, seg, track.role || "default", track.lang || "", time, w, h, options)
   })
 }
 

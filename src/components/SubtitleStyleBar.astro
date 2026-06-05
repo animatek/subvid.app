@@ -189,6 +189,58 @@ const t = useTranslations(Astro.currentLocale)
           <input id="cs-bgopacity" type="range" min="0" max="1" step="0.05" />
         </label>
       </section>
+
+      <section class="sc-group sc-group--vertical" aria-label={t.editor.fixedTitleOptions}>
+        <label class="sc-toggle" title={t.editor.fixedTitle}>
+          <input id="fixed-title-enabled" type="checkbox" />
+          <span class="sc-toggle-face">
+            <span class="sc-toggle-letter">T</span>
+          </span>
+          <span>{t.editor.fixedTitle}</span>
+        </label>
+        <label class="sc-field sc-field--fixed-title">
+          <span class="sc-label">{t.editor.fixedTitle}</span>
+          <input
+            id="fixed-title-text"
+            class="fixed-title-text"
+            type="text"
+            placeholder={t.editor.fixedTitlePlaceholder}
+          />
+        </label>
+        <label class="sc-field sc-color">
+          <span class="sc-label">{t.style.text}</span>
+          <input id="fixed-title-color" type="color" value="#ffffff" />
+        </label>
+        <label class="sc-field">
+          <span class="sc-label">{t.style.font}</span>
+          <select id="fixed-title-font" aria-label={t.editor.fixedTitleFont}>
+            <option value="sans">{t.style.fontSans}</option>
+            <option value="serif">{t.style.fontSerif}</option>
+            <option value="rounded">{t.style.fontRounded}</option>
+            <option value="mono">{t.style.fontMono}</option>
+          </select>
+        </label>
+        <label class="sc-field">
+          <span class="sc-label">{t.style.position}</span>
+          <select id="fixed-title-position" aria-label={t.editor.fixedTitlePosition}>
+            <option value="top">{t.style.top}</option>
+            <option value="middle">{t.style.mid}</option>
+            <option value="bottom">{t.style.bottom}</option>
+          </select>
+        </label>
+        <label class="sc-field sc-field--size">
+          <span class="sc-label">{t.style.size}</span>
+          <input id="fixed-title-size" type="range" min="36" max="110" value="72" />
+        </label>
+        <label class="sc-field sc-field--size">
+          <span class="sc-label">{t.editor.verticalSubsSize}</span>
+          <input id="vertical-subs-size" type="range" min="45" max="100" value="68" />
+        </label>
+        <label class="sc-field sc-field--size">
+          <span class="sc-label">{t.editor.verticalSubsPosition}</span>
+          <input id="vertical-subs-y" type="range" min="45" max="92" value="78" />
+        </label>
+      </section>
     </div>
   </div>
 </div>

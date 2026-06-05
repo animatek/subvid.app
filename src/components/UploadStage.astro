@@ -58,6 +58,18 @@ const t = useTranslations(Astro.currentLocale)
     <p class="hero-sub">{t.hero.sub}</p>
   </div>
 
+  <div id="projects-panel" class="projects-panel" hidden>
+    <div class="projects-head">
+      <div>
+        <p class="projects-kicker">{t.projects.kicker}</p>
+        <h2>{t.projects.title}</h2>
+      </div>
+      <span class="projects-local">{t.projects.local}</span>
+    </div>
+    <p id="projects-empty" class="projects-empty" hidden>{t.projects.empty}</p>
+    <div id="projects-list" class="projects-list" aria-label={t.projects.title}></div>
+  </div>
+
   <div
     id="dropzone"
     class="dropzone"

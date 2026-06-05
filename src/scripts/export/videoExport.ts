@@ -12,6 +12,20 @@ type VideoExportOptions = {
   enableExports: (on: boolean) => void
   setStatus: (message: string, kind?: string) => void
   modal: any
+  verticalCameraCrop: () => VideoCrop
+  verticalScreenCrop: () => VideoCrop
+  fixedTitle: () => FixedTitle
+  verticalSubtitles: () => { size: number; y: number }
+}
+
+type VideoCrop = { x: number; y: number; width: number; height: number }
+type FixedTitle = {
+  enabled: boolean
+  text: string
+  color: string
+  font: string
+  position: string
+  size: number
 }
 
 type WebCodecsExportResult =
@@ -20,9 +34,11 @@ type WebCodecsExportResult =
 
 type ExportFormat = "mp4" | "webm"
 type ExportQuality = "optimized" | "high" | "lossless"
+type ExportLayout = "original" | "vertical-stream"
 type ExportSettings = {
   format: ExportFormat
   quality: ExportQuality
+  layout: ExportLayout
 }
 
 const EXPORT_FORMATS = new Set<ExportFormat>(["mp4", "webm"])
@@ -31,6 +47,9 @@ const EXPORT_QUALITIES = new Set<ExportQuality>([
   "high",
   "lossless",
 ])
+const EXPORT_LAYOUTS = new Set<ExportLayout>(["original", "vertical-stream"])
+const VERTICAL_EXPORT_WIDTH = 1080
+const VERTICAL_EXPORT_HEIGHT = 1920
 const RECORDER_MIME_TYPES: Record<ExportFormat, string[]> = {
   mp4: [
     "video/mp4;codecs=avc1.42E01E,mp4a.40.2",
@@ -77,6 +96,10 @@ export function createVideoExporter(options: VideoExportOptions) {
     enableExports,
     setStatus,
     modal,
+    verticalCameraCrop,
+    verticalScreenCrop,
+    fixedTitle,
+    verticalSubtitles,
   } = options
 
   function errorMessage(error: unknown) {
@@ -114,9 +137,11 @@ export function createVideoExporter(options: VideoExportOptions) {
   function exportSettings(): ExportSettings {
     const rawFormat = ui.exportFormat?.value
     const rawQuality = ui.exportQuality?.value
+    const rawLayout = ui.exportLayout?.value
     return {
       format: EXPORT_FORMATS.has(rawFormat) ? rawFormat : "mp4",
       quality: EXPORT_QUALITIES.has(rawQuality) ? rawQuality : "optimized",
+      layout: EXPORT_LAYOUTS.has(rawLayout) ? rawLayout : "original",
     }
   }
 
@@ -125,6 +150,145 @@ export function createVideoExporter(options: VideoExportOptions) {
     ui.downloadSrtBtn.disabled = disabled
     ui.exportFormat.disabled = disabled
     ui.exportQuality.disabled = disabled
+    ui.exportLayout.disabled = disabled
+    ui.cameraCropBtn.disabled = disabled
+    ui.screenCropBtn.disabled = disabled
+    ui.verticalPreviewBtn.disabled = disabled
+  }
+
+  function drawFixedTitle(ctx: CanvasRenderingContext2D, w: number, h: number) {
+    const title = fixedTitle()
+    if (!title.enabled || !title.text.trim()) return
+    const fontMap: Record<string, string> = {
+      sans: '"Outfit", "Segoe UI", sans-serif',
+      serif: 'Georgia, "Times New Roman", serif',
+      rounded: '"Quicksand", "Trebuchet MS", sans-serif',
+      mono: '"JetBrains Mono", monospace',
+    }
+    const size = Math.max(24, Math.min(140, Number(title.size) || 72))
+    const y =
+      title.position === "middle"
+        ? h * 0.48
+        : title.position === "bottom"
+          ? h * 0.72
+          : h * 0.08
+    ctx.save()
+    ctx.font = `800 ${size}px ${fontMap[title.font] || fontMap.sans}`
+    ctx.textAlign = "center"
+    ctx.textBaseline = "top"
+    ctx.lineJoin = "round"
+    ctx.miterLimit = 2
+    ctx.strokeStyle = "rgba(0, 0, 0, 0.82)"
+    ctx.lineWidth = Math.max(6, size * 0.12)
+    ctx.fillStyle = title.color || "#ffffff"
+    const maxWidth = w * 0.86
+    const words = title.text.trim().split(/\s+/)
+    const lines: string[] = []
+    let line = ""
+    words.forEach((word) => {
+      const test = line ? `${line} ${word}` : word
+      if (line && ctx.measureText(test).width > maxWidth) {
+        lines.push(line)
+        line = word
+      } else {
+        line = test
+      }
+    })
+    if (line) lines.push(line)
+    lines.slice(0, 3).forEach((text, index) => {
+      const lineY = y + index * size * 1.12
+      ctx.strokeText(text, w / 2, lineY)
+      ctx.fillText(text, w / 2, lineY)
+    })
+    ctx.restore()
+  }
+
+  function drawCover(
+    ctx: CanvasRenderingContext2D,
+    video: HTMLVideoElement,
+    sx: number,
+    sy: number,
+    sw: number,
+    sh: number,
+    dx: number,
+    dy: number,
+    dw: number,
+    dh: number,
+  ) {
+    const sourceRatio = sw / sh
+    const destRatio = dw / dh
+    let cropX = sx
+    let cropY = sy
+    let cropW = sw
+    let cropH = sh
+
+    if (sourceRatio > destRatio) {
+      cropW = sh * destRatio
+      cropX = sx + (sw - cropW) / 2
+    } else {
+      cropH = sw / destRatio
+      cropY = sy + (sh - cropH) / 2
+    }
+
+    ctx.drawImage(video, cropX, cropY, cropW, cropH, dx, dy, dw, dh)
+  }
+
+  function drawVerticalStreamFrame(
+    ctx: CanvasRenderingContext2D,
+    video: HTMLVideoElement,
+    segments: any[],
+  ) {
+    const sw = video.videoWidth || 1920
+    const sh = video.videoHeight || 1080
+    const w = VERTICAL_EXPORT_WIDTH
+    const h = VERTICAL_EXPORT_HEIGHT
+    const screenH = 1240
+    const screenCrop = verticalScreenCrop()
+    const cameraCrop = verticalCameraCrop()
+    const screenX = Math.max(0, Math.min(sw, screenCrop.x * sw))
+    const screenY = Math.max(0, Math.min(sh, screenCrop.y * sh))
+    const screenW = Math.max(1, Math.min(sw - screenX, screenCrop.width * sw))
+    const screenSourceH = Math.max(1, Math.min(sh - screenY, screenCrop.height * sh))
+    const camX = Math.max(0, Math.min(sw, cameraCrop.x * sw))
+    const camY = Math.max(0, Math.min(sh, cameraCrop.y * sh))
+    const camW = Math.max(1, Math.min(sw - camX, cameraCrop.width * sw))
+    const camH = Math.max(1, Math.min(sh - camY, cameraCrop.height * sh))
+    const camDestW = 920
+    const camDestH = 518
+    const camDestX = (w - camDestW) / 2
+    const camDestY = 1326
+
+    ctx.fillStyle = "#05070a"
+    ctx.fillRect(0, 0, w, h)
+    const gradient = ctx.createLinearGradient(0, 0, 0, h)
+    gradient.addColorStop(0, "rgba(184, 240, 96, 0.14)")
+    gradient.addColorStop(0.42, "rgba(6, 8, 11, 0)")
+    gradient.addColorStop(1, "rgba(96, 150, 250, 0.12)")
+    ctx.fillStyle = gradient
+    ctx.fillRect(0, 0, w, h)
+
+    drawCover(ctx, video, screenX, screenY, screenW, screenSourceH, 0, 0, w, screenH)
+
+    ctx.save()
+    ctx.shadowColor = "rgba(0, 0, 0, 0.7)"
+    ctx.shadowBlur = 28
+    ctx.shadowOffsetY = 14
+    ctx.fillStyle = "#0a0d12"
+    ctx.fillRect(camDestX - 10, camDestY - 10, camDestW + 20, camDestH + 20)
+    ctx.restore()
+
+    drawCover(ctx, video, camX, camY, camW, camH, camDestX, camDestY, camDestW, camDestH)
+
+    ctx.strokeStyle = "rgba(184, 240, 96, 0.42)"
+    ctx.lineWidth = 4
+    ctx.strokeRect(camDestX, camDestY, camDestW, camDestH)
+    drawFixedTitle(ctx, w, h)
+    const subs = verticalSubtitles()
+    drawSubtitlesAt(ctx, video.currentTime, w, h, segments, {
+      fontScale: subs.size,
+      yPercent: subs.y,
+      maxWidthRatio: 0.9,
+    })
   }
 
   function sourceBitrateFor(duration: number) {
@@ -189,7 +353,8 @@ export function createVideoExporter(options: VideoExportOptions) {
     const url = URL.createObjectURL(blob)
     const link = document.createElement("a")
     link.href = url
-    link.download = `${baseFileName()}.${activeLang()}.${settings.format}`
+    const suffix = settings.layout === "vertical-stream" ? "_v" : ""
+    link.download = `${baseFileName()}${suffix}.${activeLang()}.${settings.format}`
     link.click()
     URL.revokeObjectURL(url)
   }
@@ -205,8 +370,17 @@ export function createVideoExporter(options: VideoExportOptions) {
     ui.backBtn.disabled = true
 
     try {
+      if (settings.format === "mp4") {
+        const localResult = await exportMp4ViaLocalTranscode(segments, settings)
+        if (localResult.handled) return
+        console.warn(
+          "[export] Local MP4 transcode unavailable; trying WebCodecs:",
+          localResult.reason,
+        )
+      }
+
       let fallbackReason = getWebCodecsSupportIssue()
-      if (!fallbackReason) {
+      if (!fallbackReason && settings.layout === "original") {
         const result = await exportWithWebCodecs(segments, settings)
         if (result.handled) return
         fallbackReason = result.reason
@@ -332,9 +506,15 @@ export function createVideoExporter(options: VideoExportOptions) {
       }
     }
 
-    if (!conversion.isValid) {
+    const discardedVideoTracks = conversion.discardedTracks?.filter(
+      (entry: any) => entry?.track?.type === "video" || entry?.track?.isVideoTrack?.(),
+    )
+    const hasUtilizedVideoTrack = conversion.utilizedTracks?.some(
+      (track: any) => track?.type === "video" || track?.isVideoTrack?.(),
+    )
+    if (!conversion.isValid || discardedVideoTracks.length || !hasUtilizedVideoTrack) {
       console.warn(
-        "[export] WebCodecs conversion invalid, falling back",
+        "[export] WebCodecs conversion cannot produce a video track, falling back",
         conversion.discardedTracks,
       )
       return {
@@ -385,11 +565,11 @@ export function createVideoExporter(options: VideoExportOptions) {
     return { handled: true }
   }
 
-  async function exportWithRecorder(
+  async function recordCanvasBlob(
     segments: any[],
     settings: ExportSettings,
     fallbackReason = "",
-  ) {
+  ): Promise<Blob | null> {
     const video = ui.video
 
     modal.openExportModal()
@@ -408,11 +588,11 @@ export function createVideoExporter(options: VideoExportOptions) {
           ? tt("exportErrors.noSupportAfterFallback")
           : tt("exportErrors.noSupport"),
       )
-      return
+      return null
     }
 
-    const w = video.videoWidth || 1280
-    const h = video.videoHeight || 720
+    const w = settings.layout === "vertical-stream" ? VERTICAL_EXPORT_WIDTH : video.videoWidth || 1280
+    const h = settings.layout === "vertical-stream" ? VERTICAL_EXPORT_HEIGHT : video.videoHeight || 720
     const canvas = document.createElement("canvas")
     canvas.width = w
     canvas.height = h
@@ -437,7 +617,7 @@ export function createVideoExporter(options: VideoExportOptions) {
           format: settings.format.toUpperCase(),
         }),
       )
-      return
+      return null
     }
     let recorder: MediaRecorder
     try {
@@ -448,7 +628,7 @@ export function createVideoExporter(options: VideoExportOptions) {
     } catch (e) {
       console.error(e)
       modal.failExport(tt("exportErrors.recordStart"))
-      return
+      return null
     }
 
     const chunks: Blob[] = []
@@ -456,14 +636,12 @@ export function createVideoExporter(options: VideoExportOptions) {
       if (e.data.size) chunks.push(e.data)
     }
 
-    const finished = new Promise<void>((resolve) => {
+    const finished = new Promise<Blob>((resolve) => {
       recorder.onstop = () => {
         modal.setExportStep("render", "done")
         modal.setExportStep("encode", "active")
         modal.setExportStage(tt("exportStages.generatingFile"), "busy")
-        const blob = new Blob(chunks, { type: mimeType })
-        downloadBlob(blob, settings)
-        resolve()
+        resolve(new Blob(chunks, { type: mimeType }))
       }
     })
 
@@ -501,7 +679,13 @@ export function createVideoExporter(options: VideoExportOptions) {
     const onEnded = () => stopRecording()
 
     const tick = () => {
-      if (ctx) drawFrame(ctx, video, w, h, segments)
+      if (ctx) {
+        if (settings.layout === "vertical-stream") {
+          drawVerticalStreamFrame(ctx, video, segments)
+        } else {
+          drawFrame(ctx, video, w, h, segments)
+        }
+      }
       const dur = video.duration
       if (dur && isFinite(dur)) {
         modal.setExportProgress(Math.min(94, (video.currentTime / dur) * 94))
@@ -519,21 +703,77 @@ export function createVideoExporter(options: VideoExportOptions) {
 
     try {
       await video.play()
+      return await finished
     } catch (e) {
       console.error(e)
       stopRecording()
       recorder.onstop = null
       if (recorder.state !== "inactive") recorder.stop()
+      modal.failExport(tt("exportErrors.playbackBlocked"))
+      return null
+    } finally {
       video.muted = wasMuted
       video.volume = previousVolume
-      modal.failExport(tt("exportErrors.playbackBlocked"))
-      return
+    }
+  }
+
+  async function transcodeWebmToMp4(webmBlob: Blob) {
+    const form = new FormData()
+    form.append("video", webmBlob, "render.webm")
+    const response = await fetch("/api/transcode-mp4", {
+      method: "POST",
+      body: form,
+    })
+    if (!response.ok) {
+      let message = await response.text().catch(() => "")
+      try {
+        message = JSON.parse(message).error || message
+      } catch {}
+      throw new Error(message || `HTTP ${response.status}`)
+    }
+    return response.blob()
+  }
+
+  async function exportMp4ViaLocalTranscode(
+    segments: any[],
+    settings: ExportSettings,
+  ): Promise<WebCodecsExportResult> {
+    const webmSettings: ExportSettings = { ...settings, format: "webm" }
+    const webmBlob = await recordCanvasBlob(segments, webmSettings)
+    if (!webmBlob) {
+      return { handled: false, reason: tt("exportErrors.recordStart") }
     }
 
-    await finished
+    try {
+      modal.setExportStage("Convirtiendo a MP4 compatible con Instagram…", "busy")
+      ui.exportHint.textContent = "Codificando H.264/AAC localmente con ffmpeg."
+      modal.setExportProgress(96)
+      const mp4Blob = await transcodeWebmToMp4(webmBlob)
+      downloadBlob(mp4Blob, settings)
+    } catch (error) {
+      console.warn("[export] local ffmpeg MP4 transcode failed", error)
+      return { handled: false, reason: errorMessage(error) }
+    }
 
-    video.muted = wasMuted
-    video.volume = previousVolume
+    modal.setExportStep("encode", "done")
+    modal.setExportStep("done", "done")
+    modal.setExportProgress(100)
+    modal.setExportStage(tt("exportStages.exported"), "ok")
+    ui.exportTitle.textContent = tt("exportStages.complete")
+    ui.exportHint.hidden = true
+    ui.exportClose.hidden = false
+    setStatus(tt("videoExported"), "ok")
+    return { handled: true }
+  }
+
+  async function exportWithRecorder(
+    segments: any[],
+    settings: ExportSettings,
+    fallbackReason = "",
+  ) {
+    const blob = await recordCanvasBlob(segments, settings, fallbackReason)
+    if (!blob) return
+    downloadBlob(blob, settings)
 
     modal.setExportStep("encode", "done")
     modal.setExportStep("done", "done")
