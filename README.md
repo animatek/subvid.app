@@ -32,7 +32,8 @@ No uploads. No backend. No API keys.
 3. **Generate subtitles** — Whisper transcribes the audio; NLLB translates when needed.
 4. **Edit in the timeline** — fix text, timing, and styling with undo/redo.
 5. **Save local projects** — reopen previous videos, tracks, subtitles, and export settings from your browser.
-6. **Export** — download an `.srt` file or a new video with burned-in captions, including vertical 9:16 clips.
+6. **Create vertical clips** — import horizontal videos and compose a 9:16 layout with adjustable main canvas, camera crop, subtitles, and fixed titles.
+7. **Export** — download an `.srt` file or a new video with burned-in captions, including vertical 9:16 clips.
 
 Everything runs client-side. Your video never leaves your device.
 
@@ -42,10 +43,12 @@ Everything runs client-side. Your video never leaves your device.
 - **AI translation** — [NLLB-200](https://huggingface.co/Xenova/nllb-200-distilled-600M) for multilingual subtitle tracks.
 - **Subtitle editor** — segment list, timeline scrubbing, multi-language tracks, caption presets (font, color, background, outline, position).
 - **Local project library** — saves videos, subtitles, selected languages, track states, and vertical export settings in IndexedDB.
+- **Vertical layout editor** — turns horizontal videos into vertical 9:16 clips with independent controls for the main screen/canvas crop and camera crop.
+- **Fixed title overlay** — adds configurable top text for vertical clips, including custom text, color, font, size, and position in the vertical preview/customization panel.
 - **Export options**
   - `.srt` subtitle file
   - MP4 with hard-coded subtitles (WebCodecs + [mediabunny](https://github.com/Vanilagy/mediabunny) when available; canvas + MediaRecorder as fallback)
-  - Vertical 9:16 video export with screen/camera crop controls and subtitle positioning
+  - Vertical 9:16 video export with screen/camera crop controls, fixed titles, and subtitle positioning
 - **Internationalization** — English (default) and Spanish, with static pages per locale.
 - **Offline-friendly models** — AI weights are downloaded once and cached in the browser (IndexedDB).
 
@@ -54,8 +57,10 @@ Everything runs client-side. Your video never leaves your device.
 This branch adds local project persistence and vertical-video export tools on top of the original app:
 
 - **Persistent browser projects** — completed work is auto-saved locally so projects can be opened or deleted later.
-- **Restored editing state** — saved projects keep the original video file, generated subtitles, language tracks, locked/hidden track states, fixed titles, and export preferences.
-- **Vertical stream export** — adds a 9:16 preview/export workflow with adjustable screen crop, camera crop, subtitle size, and subtitle vertical position.
+- **Restored editing state** — saved projects keep the original video file, generated subtitles, language tracks, locked/hidden track states, fixed titles, crop settings, and export preferences.
+- **Horizontal-to-vertical workflow** — horizontal videos can be imported and reframed into a vertical stream layout.
+- **Vertical stream export** — adds a 9:16 preview/export workflow with adjustable main screen/canvas crop, camera crop, subtitle size, and subtitle vertical position.
+- **Custom fixed titles** — vertical clips can include configurable text overlays with editable content, color, font, size, and position from the customization and preview controls.
 - **Local MP4 transcode endpoint** — the dev server can convert exported vertical WebM files to H.264 MP4 with `ffmpeg` when available locally.
 
 ## Tech stack
