@@ -1,6 +1,7 @@
 ---
 import ChevronLeft from "@/assets/svg/chevron-left.svg"
 import Download from "@/assets/svg/download.svg"
+import Upload from "@/assets/svg/upload.svg"
 import Undo from "@/assets/svg/undo.svg"
 import Redo from "@/assets/svg/redo.svg"
 import SubtitleStyleBar from "@/components/SubtitleStyleBar.astro"
@@ -43,7 +44,7 @@ const t = useTranslations(Astro.currentLocale)
     <span id="generation-time" class="generation-time" hidden></span>
     <div class="editor-actions">
       <button id="import-srt-btn" class="btn-soft" type="button" disabled>
-        <Download />
+        <Upload />
         {t.editor.importSrt}
       </button>
       <input id="import-srt-input" type="file" accept=".srt,text/plain" hidden />

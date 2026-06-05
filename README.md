@@ -42,6 +42,7 @@ Everything runs client-side. Your video never leaves your device.
 - **AI transcription** — [Whisper](https://huggingface.co/Xenova/whisper-base) via [transformers.js](https://huggingface.co/docs/transformers.js), with optional WebGPU acceleration.
 - **AI translation** — [NLLB-200](https://huggingface.co/Xenova/nllb-200-distilled-600M) for multilingual subtitle tracks.
 - **Subtitle editor** — segment list, timeline scrubbing, multi-language tracks, caption presets (font, color, background, outline, position).
+- **SRT import/export** — import existing `.srt` files from the editor header and export edited subtitles back to `.srt`.
 - **Local project library** — saves videos, subtitles, selected languages, track states, and vertical export settings in IndexedDB.
 - **Vertical layout editor** — turns horizontal videos into vertical 9:16 clips with independent controls for the main screen/canvas crop and camera crop.
 - **Fixed title overlay** — adds configurable top text for vertical clips, including custom text, color, font, size, and position in the vertical preview/customization panel.
@@ -61,6 +62,7 @@ This branch adds local project persistence and vertical-video export tools on to
 - **Horizontal-to-vertical workflow** — horizontal videos can be imported and reframed into a vertical stream layout.
 - **Vertical stream export** — adds a 9:16 preview/export workflow with adjustable main screen/canvas crop, camera crop, subtitle size, and subtitle vertical position.
 - **Custom fixed titles** — vertical clips can include configurable text overlays with editable content, color, font, size, and position from the customization and preview controls.
+- **SRT import button** — adds an editor action next to the SRT export button for loading existing subtitle files into the active track.
 - **Local MP4 transcode endpoint** — the dev server can convert exported vertical WebM files to H.264 MP4 with `ffmpeg` when available locally.
 
 ## Tech stack

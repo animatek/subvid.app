@@ -393,7 +393,7 @@ async function importSrtFile(file: File) {
   const text = await file.text()
   const importedSegments = parseSrt(text)
   if (!importedSegments.length) {
-    configStageController.setStatus("SRT sin subtítulos válidos.", "error")
+    configStageController.setStatus(tt("importSrtEmpty"), "error")
     return
   }
 
@@ -413,7 +413,10 @@ async function importSrtFile(file: File) {
   resetHistory()
   updateCaption()
   scheduleProjectSave()
-  configStageController.setStatus(`SRT importado: ${importedSegments.length} líneas.`, "ok")
+  configStageController.setStatus(
+    tt("importSrtReady", { n: importedSegments.length }),
+    "ok",
+  )
 }
 
 function clampCrop(crop: typeof verticalCameraCrop) {
